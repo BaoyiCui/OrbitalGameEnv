@@ -28,13 +28,8 @@ def main():
 
     rv = orbitx.coe2rv(np.array([sma, ecc, inc, raan, argp, ta]))
 
-    coe = orbit_lib.rv2coe(rv * 1e3)
 
-    rv_ = orbit_lib.coe2rv(coe)
-
-    print(f'coe orbit_lib: {coe}')
-    print(f'rv orbit_lib: {rv_}')
-    print(f'rv : {rv*3}')
+    
 
     pass
 

@@ -157,37 +157,33 @@ class OrbitLib:
     def orbit_hpop(
             self,
             utc: np.ndarray,
-            rv_j200: np.ndarray,
+            rv_j2000: np.ndarray,
             h: float,
             hpop_in: HPOP_In
     ):
-        # UTC_in = Array6(UTC)
-        # RVj2000_in = Array6(RVj2000)
-        # h_in = c_double(h)
-        # HPOPIN_in = HPOP_In(HPOPIN)
-        # UTC_out = Array6()
-        # RVj2000_out = Array6()
-        utc_in = np.asarray(utc, dtype=np.float64, order='C')
-        rv_j2000_in = np.asarray(rv_j200, dtype=np.float64, order='C')
-        utc_out = np.empty(6, dtype=np.float64)
-        rv_j2000_out = np.empty(6, dtype=np.float64)
+        utc_in = Array6(*utc)
+        rv_j2000_in = Array6(*rv_j2000)
+        h = c_double(h)
+        hpop_in_in = HPOP_In(hpop_in)
+        utc_out = Array6()
+        rv_j2000_out = Array6()
 
         self.lib.OrbitHPOP1(
             utc_in,
             rv_j2000_in,
             h,
-            hpop_in,
+            hpop_in_in,
             utc_out,
             rv_j2000_out,
         )
 
-        return utc_out, rv_j2000_out
+        return np.array(utc_out), np.array(rv_j2000_out)
 
     def coe2rv(self, coe):
         coe_in = Array6(*coe)
-        coe_out = Array6()
-        self.lib.COE2RV(coe_in, coe_out)
-        return np.array(coe_out)
+        rvj2000_out = Array6()
+        self.lib.COE2RV(rvj2000_out, coe_in)
+        return np.array(rvj2000_out)
 
     def rv2coe(self, rv_j2000):
         rv_j2000_in = Array6(*rv_j2000)
