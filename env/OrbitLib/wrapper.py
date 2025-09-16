@@ -13,9 +13,12 @@ from ctypes import (
     Structure
 )
 
-Array3 = ndpointer(dtype=np.float64, ndim=1, shape=(3,), flags=("C_CONTIGUOUS", "ALIGNED"))
-Array6 = ndpointer(dtype=np.float64, ndim=1, shape=(6,), flags=("C_CONTIGUOUS", "ALIGNED"))
-Mat3x3 = ndpointer(dtype=np.float64, ndim=2, shape=(3, 3), flags=("C_CONTIGUOUS", "ALIGNED"))
+# Array3 = ndpointer(dtype=np.float64, ndim=1, shape=(3,), flags=("C_CONTIGUOUS", "ALIGNED"))
+# Array6 = ndpointer(dtype=np.float64, ndim=1, shape=(6,), flags=("C_CONTIGUOUS", "ALIGNED"))
+# Mat3x3 = ndpointer(dtype=np.float64, ndim=2, shape=(3, 3), flags=("C_CONTIGUOUS", "ALIGNED"))
+Array3 = c_double * 3
+Array6 = c_double * 6
+Mat3x3 = (c_double * 3) * 3
 
 
 ###
@@ -181,13 +184,13 @@ class OrbitLib:
         return utc_out, rv_j2000_out
 
     def coe2rv(self, coe):
-        coe_in = np.asarray(coe, dtype=np.float64, order='C')
-        coe_out = np.empty(6, dtype=np.float64)
+        coe_in = Array6(*coe)
+        coe_out = Array6()
         self.lib.COE2RV(coe_in, coe_out)
-        return coe_out
+        return np.array(coe_out)
 
     def rv2coe(self, rv_j2000):
-        rv_j2000_in = np.asarray(rv_j2000, dtype=np.float64, order='C')
-        coe_out = np.empty(6, dtype=np.float64)
+        rv_j2000_in = Array6(*rv_j2000)
+        coe_out = Array6()
         self.lib.RV2COE(rv_j2000_in, coe_out)
-        return coe_out
+        return np.array(coe_out)
