@@ -45,12 +45,12 @@ def main():
         Dyn_Type=0  # 无效，J2摄动
     )
 
-    rv_f = orbitx.rv_from_r0v0(rv, 600.0)
+    rv_f = orbitx.rv_from_r0v0(rv, 600.0)  # orbitx中使用的单位是 km, km/s, s
     utc = datetime.datetime(2030, 1, 1, 0, 0, 0)
 
     utc_f, rv_f_ = orbit_lib.orbit_hpop(
         utc,
-        rv_j2000=rv * 1e3,
+        rv_j2000=rv * 1e3,  # orbit_lib中使用的单位是 m, m/s, s
         h=600.0,
         hpop_in=hpopin
     )
