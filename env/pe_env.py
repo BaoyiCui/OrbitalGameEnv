@@ -5,13 +5,11 @@ import datetime
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
+from collections import deque
 import gymnasium as gym
 from gymnasium import spaces
-
 import numpy as np
-
 from pettingzoo import ParallelEnv
-from pettingzoo.utils.env import AgentID
 
 from .OrbitLib import OrbitLib, HPOP_In
 
@@ -56,6 +54,11 @@ class PEEnvCfg:
         Dyn_Type=0  # 无效，J2摄动
     )
 
+    ###
+    # 渲染
+    ###
+    debug_vis = False
+
 
 class PEEnv(ParallelEnv):
     metadata = {
@@ -76,8 +79,12 @@ class PEEnv(ParallelEnv):
         self.agents.append(f'p_{i}' for i in range(self._config.num_p))
         self.agents.append(f'e_{i}' for i in range(self._config.num_e))
 
-        self.states = {agent: np.zeros(6, ) for agent in self.agents}
-        self.remain_Dvs = {agent: 0.0 for agent in self.agents}
+        self.states = {a: np.zeros(6, ) for a in self.agents}
+        self.remain_Dvs = {a: 0.0 for a in self.agents}
+
+        # 渲染
+        if self._config.debug_vis:
+            self.history_states = {a: [] for a in self.agents}
 
     def reset(self, seed=None, options=None):
         sma = 42166300.0  # 轨道半长轴, m
@@ -100,38 +107,39 @@ class PEEnv(ParallelEnv):
         # self.remain_Dv = self._config.init_dv
         self.remain_Dvs = {a: self._config.init_dv for a in self.agents}
 
-        observations = {
-            agent: self.states[agent]
-            for agent in self.agents
-        }
+        observations = self._get_observations()
 
-        infos = {agent: {} for agent in self.agents}  # dummy infos
+        infos = {a: {} for a in self.agents}  # dummy infos
 
         return observations, infos
 
     def step(self, actions):
         # 施加脉冲
-        for agent in self.agents:
-            self.states[agent][3:] += actions[agent]  # 施加速度增量
+        for a in self.agents:
+            # self.remain_Dvs[agent] -= np.linalg.norm()
+            # 从剩余燃料中扣除
+            if np.linalg.norm(actions[a]) > self.remain_Dvs[a]:
+                actions[a] = actions[a] / np.linalg.norm(actions[a]) * self.remain_Dvs[a]
+
+            self.states[a][3:] += actions[a]  # 施加速度增量
+            self.remain_Dvs[a] -= np.linalg.norm(actions[a])
+
         # 在J2000下递推
-        for agent in self.agents:
-            self.states[agent] = self._orbit_lib.orbit_hpop(
+        for a in self.agents:
+            self.states[a] = self._orbit_lib.orbit_hpop(
                 self._config.init_utc,
-                self.states[agent],
+                self.states[a],
                 self._config.dt,
                 self._config.hpop_in
             )
         self._time = self._time + datetime.timedelta(seconds=self._config.dt)
-        observations = {
-            agent: self.states[agent]
-            for agent in self.agents
-        }
 
+        observations = self._get_observations()
         rewards = self._get_rewards()
         truncations = self._get_truncations()
         terminations = self._get_terminations()
 
-        infos = {agent: {} for agent in self.agents}  # dummy infos
+        infos = {a: {} for a in self.agents}  # dummy infos
 
         return observations, rewards, terminations, truncations, infos
 
@@ -144,6 +152,13 @@ class PEEnv(ParallelEnv):
 
     def action_space(self, agent):
         return self.action_spaces[agent]
+
+    def _get_observations(self):
+        observations = {
+            a: self.states[a]
+            for a in self.agents
+        }
+        pass
 
     def _get_rewards(self):
         # TODO: 构造rewards
