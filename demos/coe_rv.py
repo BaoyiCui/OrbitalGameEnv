@@ -8,9 +8,9 @@ from env.OrbitLib import OrbitLib
 def main():
     sma = 42166.0  # 轨道半长轴, km
     ecc = 0.0  # 偏心率，无量纲
-    inc = 0.0  # 轨道倾角，度
+    inc = 45.0  # 轨道倾角，度
     argp = 0.0  # 近地点幅角，度
-    raan = 0.0  # 升交点赤经，度
+    raan = 30  # 升交点赤经，度
     # ta = np.random.uniform(0.0, 360.0)  # 真近点角，度
     ta = 0
 

@@ -162,6 +162,13 @@ class OrbitLib:
             h: float,
             hpop_in: HPOP_In
     ):
+        """
+        :param utc: utc时间, datetime.datetime
+        :param rv_j2000: j2000系下的位置速度，单位 m, m/s
+        :param h: 递推步长，s
+        :param hpop_in: HPOP初始化参数
+        :returns: 递推后时间与j2000系下的位置速度，单位同上
+        """
         utc_in = Array6(*(utc.year, utc.month, utc.day, utc.hour, utc.minute, utc.second))
         rv_j2000_in = Array6(*rv_j2000)
         h_in = c_double(h)
@@ -180,16 +187,21 @@ class OrbitLib:
         return utc + datetime.timedelta(seconds=h), np.array(rv_j2000_out)
 
     def coe2rv(self, coe):
+        """
+        :param coe: 轨道根数，sma, ecc, inc, raan, argp, ta，单位 m, rad
+        :return rv_j2000: j2000系下的位置速度，单位 m, m/s
+        """
         coe_in = Array6(*coe)
         rvj2000_out = Array6()
         self.lib.COE2RV(rvj2000_out, coe_in)
         return np.array(rvj2000_out)
 
     def rv2coe(self, rv_j2000):
+        """
+        :param rv_j2000: j2000系下的位置速度，单位 m, m/s
+        :return coe: 轨道根数，sma, ecc, inc, raan, argp, ta，单位 m, rad
+        """
         rv_j2000_in = Array6(*rv_j2000)
         coe_out = Array6()
         self.lib.RV2COE(rv_j2000_in, coe_out)
         return np.array(coe_out)
-
-
-

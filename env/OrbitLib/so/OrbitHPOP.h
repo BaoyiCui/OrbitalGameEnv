@@ -277,7 +277,7 @@ extern "C" void DCM_NorthEastDown_to_J2000(const double R[3], double DCM[3][3]);
 extern "C" void DCM_J2000_to_NorthEastDown(const double R[3], double DCM[3][3]);//新增
 
 //瞬根数转化为位置速度(弧度)
-//输入：const double coe[]轨道根数，弧度
+//输入：const double coe[]轨道根数，弧度，顺序：sma, ecc, inc, raan, argp, ta
 //输出：double rv[]J2000位置速度m、m/s
 extern "C" void COE2RV(double rv[], const double coe[]);
 
