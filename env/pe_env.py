@@ -10,6 +10,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from pettingzoo import ParallelEnv
+from pettingzoo.classic.chess.test_chess import assert_asserts
 
 from .OrbitLib import OrbitLib, HPOP_In
 
@@ -23,7 +24,6 @@ class PEEnvCfg:
     # 初始条件
     ###
     init_utc = datetime.datetime(2030, 1, 1, 0, 0, 0)
-    dt: float = 60.0  # 每次机动的间隔时间
     init_dv: float = 100.0  # 初始剩余delta V, m/s
     ###
     # 终止条件
@@ -39,6 +39,8 @@ class PEEnvCfg:
     # 仿真参数设置
     ###
     dt: float = 60.0  # 每次机动的间隔时间
+    dv_step: float = 1
+
     orbit_lib_path: str = "/home/baoyicui/Workspaces/OrbitalGameEnv/env/OrbitLib/so/X86/libOrbit.so"
     hpop_in = HPOP_In(  # HPOP 初始化参数，全局变量
         inial=True,
@@ -59,6 +61,19 @@ class PEEnvCfg:
     ###
     debug_vis = False
 
+    def check_params(self):
+        # if not (self._config.num_p == 1):
+        #     raise ValueError("num_p must be 1")
+        # if not self._config.num_e == 1:
+        #     raise ValueError("num_e must be 1")
+        # if not self._config.dv_step > 0:
+        #     raise ValueError("dv_step must be greater than 0")
+        # if not self.
+        assert self.num_p == 1
+        assert self.num_e == 1
+        assert self.dv_step > 0.0
+        assert self.init_dv > 0.0
+
 
 class PEEnv(ParallelEnv):
     metadata = {
@@ -67,17 +82,26 @@ class PEEnv(ParallelEnv):
         'render_fps': 15
     }
 
-    def __init__(self, config: PEEnvCfg):
+    def __init__(self, config: PEEnvCfg = PEEnvCfg()):
         super().__init__()
         self._config = config
+        self._config.check_params()  # 检查参数是否合法
+
         self._orbit_lib = OrbitLib(self._config.orbit_lib_path)
 
         self._time = self._config.init_utc
 
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(3,))
+        # self.action_space = spaces.Box(-1.0, 1.0, shape=(3,))
         self.agents = list()
-        self.agents.append(f'p_{i}' for i in range(self._config.num_p))
-        self.agents.append(f'e_{i}' for i in range(self._config.num_e))
+        self.agents.extend([f'p_{i}' for i in range(self._config.num_p)])
+        self.agents.extend([f'e_{i}' for i in range(self._config.num_e)])
+
+        # 动作空间、观测空间
+        self.action_spaces = {
+            a: spaces.Box(-self._config.dv_step, self._config.dv_step, shape=(3,))
+            for a in self.agents
+        }
+        self.observation_spaces = {a: spaces.Box(-np.inf, np.inf, shape=(6,)) for a in self.agents}
 
         self.states = {a: np.zeros(6, ) for a in self.agents}
         self.remain_Dvs = {a: 0.0 for a in self.agents}
@@ -98,13 +122,13 @@ class PEEnv(ParallelEnv):
         ta_pur = (ta_eva + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
 
         self.states['p_0'] = self._orbit_lib.coe2rv(np.array([
-            sma, ecc, inc, raan, argp, raan, ta_pur
+            sma, ecc, inc, raan, argp, ta_pur
         ]))
         self.states['e_0'] = self._orbit_lib.coe2rv(np.array([
-            sma, ecc, inc, raan, argp, raan, ta_eva
+            sma, ecc, inc, raan, argp, ta_eva
         ]))
 
-        # self.remain_Dv = self._config.init_dv
+        self._time = self._config.init_utc
         self.remain_Dvs = {a: self._config.init_dv for a in self.agents}
 
         observations = self._get_observations()
@@ -113,11 +137,13 @@ class PEEnv(ParallelEnv):
 
         return observations, infos
 
-    def step(self, actions):
+    def step(self, actions: Dict[str, np.ndarray]):
         # 施加脉冲
         for a in self.agents:
-            # self.remain_Dvs[agent] -= np.linalg.norm()
-            # 从剩余燃料中扣除
+            # 动作模约束
+            if np.linalg.norm(actions[a]) > self._config.dv_step:
+                actions[a] = actions[a] / np.linalg.norm(actions[a]) * self._config.dv_step
+
             if np.linalg.norm(actions[a]) > self.remain_Dvs[a]:
                 actions[a] = actions[a] / np.linalg.norm(actions[a]) * self.remain_Dvs[a]
 
@@ -126,12 +152,13 @@ class PEEnv(ParallelEnv):
 
         # 在J2000下递推
         for a in self.agents:
-            self.states[a] = self._orbit_lib.orbit_hpop(
-                self._config.init_utc,
+            _, new_state = self._orbit_lib.orbit_hpop(
+                self._time,
                 self.states[a],
                 self._config.dt,
                 self._config.hpop_in
             )
+            self.states[a] = new_state
         self._time = self._time + datetime.timedelta(seconds=self._config.dt)
 
         observations = self._get_observations()
@@ -158,7 +185,7 @@ class PEEnv(ParallelEnv):
             a: self.states[a]
             for a in self.agents
         }
-        pass
+        return observations
 
     def _get_rewards(self):
         # TODO: 构造rewards
