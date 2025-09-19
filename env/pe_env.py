@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Dict
 
-from collections import deque
-import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
 from pettingzoo import ParallelEnv
-from pettingzoo.classic.chess.test_chess import assert_asserts
 
 from .OrbitLib import OrbitLib, HPOP_In
+from .viewer import Viewer
 
 
 @dataclass
@@ -60,15 +58,11 @@ class PEEnvCfg:
     # 渲染
     ###
     debug_vis = False
+    width: int = 800
+    height: int = 600
+    max_history = 60
 
     def check_params(self):
-        # if not (self._config.num_p == 1):
-        #     raise ValueError("num_p must be 1")
-        # if not self._config.num_e == 1:
-        #     raise ValueError("num_e must be 1")
-        # if not self._config.dv_step > 0:
-        #     raise ValueError("dv_step must be greater than 0")
-        # if not self.
         assert self.num_p == 1
         assert self.num_e == 1
         assert self.dv_step > 0.0
@@ -107,8 +101,12 @@ class PEEnv(ParallelEnv):
         self.remain_Dvs = {a: 0.0 for a in self.agents}
 
         # 渲染
-        if self._config.debug_vis:
-            self.history_states = {a: [] for a in self.agents}
+        self.viewer = Viewer(
+            width=self._config.width,
+            height=self._config.height,
+            agents=self.agents,
+            max_history=self._config.max_history
+        )
 
     def reset(self, seed=None, options=None):
         sma = 42166300.0  # 轨道半长轴, m
@@ -171,8 +169,7 @@ class PEEnv(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
-        # TODO: 补全render
-        pass
+        self.viewer.update(self.states)
 
     def observation_space(self, agent):
         return self.observation_spaces[agent]
