@@ -1,4 +1,5 @@
 from collections import deque
+from typing import List
 
 import numpy as np
 from vispy import app, scene
@@ -7,10 +8,10 @@ from vispy import app, scene
 class Viewer:
     def __init__(
             self,
-            width,
-            height,
-            agents,
-            max_history=20
+            width: int,
+            height: int,
+            agents: List[str],
+            max_history: int = 20,
     ):
         self.canvas = scene.SceneCanvas(
             keys="interactive",
@@ -50,7 +51,7 @@ class Viewer:
         self._smooth_center = None
         self._smooth_alpha = 0.1  # 中心点平滑（0-1），越大追随越快
 
-        # ====== 图例相关（新增） ======
+        # 图例相关
         self._legend_margin_px = (12, 12)  # 图例左上角偏移（像素）
         self._legend_row_spacing = 30  # 每行间距（像素）
         self._legend_swatch_size = 20  # 色块大小（像素）
@@ -86,11 +87,12 @@ class Viewer:
             # 更新历史轨迹
             self.history_positions[a].append(self.positions[a])
             # 更新可视化标记位置
-            self.markers[a].set_data(np.expand_dims(self.positions[a], 0), face_color=self.colors[a], size=self._marker_size)
+            self.markers[a].set_data(np.expand_dims(self.positions[a], 0), face_color=self.colors[a],
+                                     size=self._marker_size)
             # 绘制历史轨迹
             if len(self.history_positions[a]) > 1:
                 self.trajs[a].set_data(
-                    self.history_positions[a],
+                    np.array(self.history_positions[a]),
                     color=self.colors[a],
                     width=5,
                 )
@@ -98,6 +100,8 @@ class Viewer:
         self._frame_count += 1
         if (self._frame_count % self._autoframe_every) == 0:
             self._auto_frame()
+
+        app.process_events()
 
     def reset(self):
         # 重置
@@ -161,25 +165,3 @@ class Viewer:
         self.view.camera.set_range(x=(bb_min_s[0], bb_max_s[0]),
                                    y=(bb_min_s[1], bb_max_s[1]),
                                    z=(bb_min_s[2], bb_max_s[2]))
-
-    def _init_legend_fixed(self):
-        """一次性创建图例，位置固定在左上角像素坐标。"""
-        x0, y0 = self._legend_margin_px
-        for idx, a in enumerate(self.agents):
-            y = y0 + idx * self._legend_row_spacing
-
-            # 色块：放在屏幕坐标（canvas.scene 下 + STTransform 平移）
-            swatch = scene.visuals.Markers(parent=self.canvas.scene)
-            swatch.set_data(np.array([[0.0, 0.0]]), face_color=self.colors[a], size=self._legend_swatch_size)
-            swatch.transform = scene.transforms.STTransform(translate=(x0, y, 0))
-
-            # 文字：固定到色块右侧 8px
-            label = scene.visuals.Text(
-                text=str(a),
-                color='white',
-                anchor_x='left', anchor_y='center',
-                parent=self.canvas.scene
-            )
-            label.transform = scene.transforms.STTransform(translate=(x0 + self._legend_swatch_size + 8, y, 0))
-
-            self._legend_items[a] = {'swatch': swatch, 'text': label}

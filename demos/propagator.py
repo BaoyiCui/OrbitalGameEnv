@@ -1,5 +1,6 @@
-import numpy as np
 import datetime
+
+import numpy as np
 
 from env import orbitx
 from env.OrbitLib import OrbitLib, HPOP_In
@@ -14,6 +15,7 @@ def main():
     # ta = np.random.uniform(0.0, 360.0)  # 真近点角，度
     ta = 0
 
+    # orbit_lib = OrbitLib(r"D:\Workspaces\OrbitalGameEnv\env\OrbitLib\dll\release\OrbitHPOP.dll") # windows加载此dll
     orbit_lib = OrbitLib("/home/baoyicui/Workspaces/OrbitalGameEnv/env/OrbitLib/so/X86/libOrbit.so")
 
     rv = orbitx.coe2rv(np.array([sma, ecc, inc, raan, argp, ta]))

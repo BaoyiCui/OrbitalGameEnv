@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os.path
-
-import numpy as np
 import datetime
-from numpy.ctypeslib import ndpointer
+import os
+import platform
 from ctypes import (
     CDLL,
     c_bool,
@@ -14,9 +12,8 @@ from ctypes import (
     Structure
 )
 
-# Array3 = ndpointer(dtype=np.float64, ndim=1, shape=(3,), flags=("C_CONTIGUOUS", "ALIGNED"))
-# Array6 = ndpointer(dtype=np.float64, ndim=1, shape=(6,), flags=("C_CONTIGUOUS", "ALIGNED"))
-# Mat3x3 = ndpointer(dtype=np.float64, ndim=2, shape=(3, 3), flags=("C_CONTIGUOUS", "ALIGNED"))
+import numpy as np
+
 Array3 = c_double * 3
 Array6 = c_double * 6
 Mat3x3 = (c_double * 3) * 3
@@ -70,7 +67,15 @@ class HPOP_In(Structure):
 
 
 class OrbitLib:
-    def __init__(self, so_path: str) -> None:
+    def __init__(self, so_path: str | None = None) -> None:
+        if so_path is None:
+            system = platform.system().lower()
+            lib_dir = os.path.dirname(os.path.abspath(__file__))
+            if system == 'windows':
+                so_path = os.path.join(lib_dir, "dll", "release", "OrbitHPOP.dll")
+            if system == 'linux':
+                so_path = os.path.join(lib_dir, "so", "X86", "OrbitHPOP.so")
+
         if not os.path.exists(so_path):
             raise FileNotFoundError(f"Shared library not found: {so_path}")
         self.lib = CDLL(so_path)

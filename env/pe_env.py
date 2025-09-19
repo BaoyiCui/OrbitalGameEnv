@@ -39,7 +39,6 @@ class PEEnvCfg:
     dt: float = 60.0  # 每次机动的间隔时间
     dv_step: float = 1
 
-    orbit_lib_path: str = "/home/baoyicui/Workspaces/OrbitalGameEnv/env/OrbitLib/so/X86/libOrbit.so"
     hpop_in = HPOP_In(  # HPOP 初始化参数，全局变量
         inial=True,
         mass=50,
@@ -81,7 +80,7 @@ class PEEnv(ParallelEnv):
         self._config = config
         self._config.check_params()  # 检查参数是否合法
 
-        self._orbit_lib = OrbitLib(self._config.orbit_lib_path)
+        self._orbit_lib = OrbitLib()
 
         self._time = self._config.init_utc
 
@@ -128,6 +127,8 @@ class PEEnv(ParallelEnv):
 
         self._time = self._config.init_utc
         self.remain_Dvs = {a: self._config.init_dv for a in self.agents}
+
+        self.viewer.reset()
 
         observations = self._get_observations()
 
