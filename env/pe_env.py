@@ -27,7 +27,7 @@ class PEEnvCfg:
     # 终止条件
     ###
     dist_cap = 30.0e3  # 距离 < dist_cap, 抓捕成功
-    episode_length: float = 3600.0  # 每个episode的时间长度
+    episode_length: float = 3600.0 * 24  # 每个episode的时间长度
 
     ###
     # TODO: 奖励函数

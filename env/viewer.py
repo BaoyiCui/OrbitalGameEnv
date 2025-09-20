@@ -46,7 +46,7 @@ class Viewer:
 
         # 相机追踪参数
         self._autoframe_margin = 0.10  # 10% 边距
-        self._autoframe_every = 1  # 每帧更新相机位置
+        self._autoframe_every = 2  # 每帧更新相机位置
         self._frame_count = 0
         self._smooth_center = None
         self._smooth_alpha = 0.1  # 中心点平滑（0-1），越大追随越快
@@ -89,6 +89,7 @@ class Viewer:
             # 更新可视化标记位置
             self.markers[a].set_data(np.expand_dims(self.positions[a], 0), face_color=self.colors[a],
                                      size=self._marker_size)
+
             # 绘制历史轨迹
             if len(self.history_positions[a]) > 1:
                 self.trajs[a].set_data(
@@ -100,8 +101,7 @@ class Viewer:
         self._frame_count += 1
         if (self._frame_count % self._autoframe_every) == 0:
             self._auto_frame()
-
-        app.process_events()
+            app.process_events()
 
     def reset(self):
         # 重置
@@ -109,7 +109,8 @@ class Viewer:
         for a in self.agents:
             self.history_positions[a].clear()  # 清空历史轨迹
             self.markers[a].set_data(np.expand_dims(self.positions[a], 0), face_color=self.colors[a])  # 重置标记位置
-            self.trajs[a].set_data([], color=self.colors[a])  # 清空轨迹
+            # self.trajs[a].set_data([], color=self.colors[a])  # 清空轨迹
+            self.trajs[a].set_data([], [])
 
         # 重置相机平滑
         self._smooth_center = None
