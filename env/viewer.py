@@ -49,7 +49,7 @@ class Viewer:
         self._autoframe_every = 2  # 每帧更新相机位置
         self._frame_count = 0
         self._smooth_center = None
-        self._smooth_alpha = 0.1  # 中心点平滑（0-1），越大追随越快
+        self._smooth_alpha = 0.5  # 中心点平滑（0-1），越大追随越快
 
         # 图例相关
         self._legend_margin_px = (12, 12)  # 图例左上角偏移（像素）
