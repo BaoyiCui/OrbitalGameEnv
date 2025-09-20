@@ -38,7 +38,6 @@ class PEEnvCfg:
     ###
     dt: float = 60.0  # 每次机动的间隔时间
     dv_step: float = 1
-
     hpop_in = HPOP_In(  # HPOP 初始化参数，全局变量
         inial=True,
         mass=50,
@@ -84,7 +83,6 @@ class PEEnv(ParallelEnv):
 
         self._time = self._config.init_utc
 
-        # self.action_space = spaces.Box(-1.0, 1.0, shape=(3,))
         self.agents = list()
         self.agents.extend([f'p_{i}' for i in range(self._config.num_p)])
         self.agents.extend([f'e_{i}' for i in range(self._config.num_e)])
@@ -195,14 +193,16 @@ class PEEnv(ParallelEnv):
         # 距离判断
         dist = np.linalg.norm(self.states['p_0'][:3] - self.states['e_0'][:3])
         terminations = {a: False for a in self.agents}
+        # 距离判断
         if dist < self._config.dist_cap:
             terminations = {a: True for a in self.agents}
-        # TODO: 剩余速度增量判断
+        # 剩余速度增量判断
+        if any(dv <= 0 for dv in self.remain_Dvs.values()):
+            terminations = {a: True for a in self.agents}
 
         return terminations
 
     def _get_truncations(self):
-
         """ 判断是否超过一个 episode 的时间长度 """
         truncations = {a: False for a in self.agents}
         if self._time >= self._config.init_utc + datetime.timedelta(seconds=self._config.episode_length):
