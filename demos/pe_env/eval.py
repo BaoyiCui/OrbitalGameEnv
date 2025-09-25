@@ -17,6 +17,8 @@ def main():
         }
         observations, rewards, terminations, truncations, _ = env.step(actions)
 
+        print(rewards)
+
         env.render()
 
         if any(terminations.values()) or any(truncations.values()):

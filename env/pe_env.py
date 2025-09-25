@@ -26,12 +26,14 @@ class PEEnvCfg:
     ###
     # 终止条件
     ###
-    dist_cap = 30.0e3  # 距离 < dist_cap, 抓捕成功
+    dist_cap: float = 30.0e3  # 距离 < dist_cap, 抓捕成功
     episode_length: float = 3600.0 * 24  # 每个episode的时间长度
 
     ###
     # TODO: 奖励函数
     ###
+    coeff_dist: float = 1.0
+    coeff_cap: float = 30.0
 
     ###
     # 仿真参数设置
@@ -177,6 +179,7 @@ class PEEnv(ParallelEnv):
         return self.action_spaces[agent]
 
     def _get_observations(self):
+        # TODO: 这里修改为相对坐标系下的观测量
         observations = {
             a: self.states[a]
             for a in self.agents
@@ -186,6 +189,20 @@ class PEEnv(ParallelEnv):
     def _get_rewards(self):
         # TODO: 构造rewards
         rewards = {a: 0.0 for a in self.agents}
+        dist = np.linalg.norm(self.states['p_0'][:3] - self.states['e_0'][:3])
+        for a in self.agents:
+            if "p" in a:
+                rewards[a] += -dist * self._config.coeff_dist
+            else:
+                rewards[a] += dist * self._config.coeff_dist
+
+        if dist <= self._config.dist_cap:
+            for a in self.agents:
+                if "p" in a:
+                    rewards[a] += self._config.coeff_cap
+                else:
+                    rewards[a] += -self._config.coeff_cap
+
         return rewards
 
     def _get_terminations(self):
