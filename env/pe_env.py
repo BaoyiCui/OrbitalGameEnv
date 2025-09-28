@@ -11,7 +11,7 @@ from pettingzoo import ParallelEnv
 
 from .OrbitLib import OrbitLib, HPOP_In
 from .viewer import Viewer
-
+from copy import copy
 
 @dataclass
 class PEEnvCfg:
@@ -82,17 +82,26 @@ class PEEnv(ParallelEnv):
         self._orbit_lib = OrbitLib()
 
         self._time = self._config.init_utc
+        self.render_mode = None
 
-        self.agents = list()
-        self.agents.extend([f'p_{i}' for i in range(self._config.num_p)])
-        self.agents.extend([f'e_{i}' for i in range(self._config.num_e)])
+        # --- 核心修改部分：添加 self.possible_agents ---
+        # possible_agents 是环境中所有可能的智能体ID（不变的列表）
+        possible_p = [f'p_{i}' for i in range(self._config.num_p)]
+        possible_e = [f'e_{i}' for i in range(self._config.num_e)]
+        self.possible_agents = possible_p + possible_e
+        
+        # agents 是当前回合活跃的智能体ID（在 reset 中可能会被重置）
+        self.agents = []
 
         # 动作空间、观测空间
         self.action_spaces = {
             a: spaces.Box(-self._config.dv_step, self._config.dv_step, shape=(3,))
-            for a in self.agents
+            for a in self.possible_agents
         }
-        self.observation_spaces = {a: spaces.Box(-np.inf, np.inf, shape=(6,)) for a in self.agents}
+        self.observation_spaces = {
+            a: spaces.Box(-np.inf, np.inf, shape=(6,)) 
+            for a in self.possible_agents
+        }
 
         self.states = {a: np.zeros(6, ) for a in self.agents}
         self.remain_Dvs = {a: 0.0 for a in self.agents}
@@ -106,6 +115,7 @@ class PEEnv(ParallelEnv):
         )
 
     def reset(self, seed=None, options=None):
+        self.agents = copy(self.possible_agents)
         sma = 42166300.0  # 轨道半长轴, m
         ecc = 0.0  # 偏心率，无量纲
         inc = 0.0  # 轨道倾角，rad
@@ -164,12 +174,16 @@ class PEEnv(ParallelEnv):
         terminations = self._get_terminations()
 
         infos = {a: {} for a in self.agents}  # dummy infos
+        #修复：移除已终止的agents,移除的agent的infos也要打印
+        for agent in list(self.agents):  # 使用list创建副本，避免在迭代时修改
+            if terminations[agent] or truncations[agent]:
+                self.agents.remove(agent)
 
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
         self.viewer.update(self.states)
-
+        return None
     def observation_space(self, agent):
         return self.observation_spaces[agent]
 
