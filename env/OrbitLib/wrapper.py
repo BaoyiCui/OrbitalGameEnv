@@ -74,7 +74,7 @@ class OrbitLib:
             if system == 'windows':
                 so_path = os.path.join(lib_dir, "dll", "release", "OrbitHPOP.dll")
             if system == 'linux':
-                so_path = os.path.join(lib_dir, "so", "X86", "OrbitHPOP.so")
+                so_path = os.path.join(lib_dir, "so", "X86", "libOrbit.so")
 
         if not os.path.exists(so_path):
             raise FileNotFoundError(f"Shared library not found: {so_path}")
