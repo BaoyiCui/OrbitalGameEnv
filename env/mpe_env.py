@@ -1,4 +1,4 @@
-# MPE-Env: 使用继承实现的多智能体追逃环境
+# MPE-Env: 使用继承实现的多智能体追逃环境，此处是完全可观测的环境，对应的训练脚本是train.py
 from __future__ import annotations
 
 from dataclasses import dataclass
