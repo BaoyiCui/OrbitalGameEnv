@@ -1,3 +1,4 @@
+
 # 1v1 pursuit evasion game
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from copy import copy
 
 @dataclass
 class PEEnvCfg:
-    evader_policy_type: str = "None"  # 可选项 "random"， "RL"
+    evader_policy_type: str = "None"  # 可选项 "random", "RL"
     ###
     # 追逃智能体数量
     ###
@@ -25,24 +26,30 @@ class PEEnvCfg:
     # 初始条件
     ###
     init_utc = datetime.datetime(2030, 1, 1, 0, 0, 0)
-    init_dv: float = 100.0  # 初始剩余delta V, m/s
+    p_init_dv: float = 500.0  # 追击方初始剩余delta V, m/s
+    e_init_dv: float = 100.0  # 逃逸方初始剩余delta V, m/s
     ###
     # 终止条件
     ###
-    dist_cap: float = 30.0e3  # 距离 < dist_cap, 抓捕成功
+    dist_cap: float = 30.0e3  # 距离 < dist_cap (30km), 抓捕成功
     episode_length: float = 3600.0 * 24  # 每个episode的时间长度
 
     ###
-    # TODO: 奖励函数
+    # 奖励函数设计 (New)
     ###
-    coeff_dist: float = 1.0
-    coeff_cap: float = 30.0
+    reward_dist_weight: float = 0.00001 # 距离奖励的经验权重 
+    reward_time_weight: float = 0.1 # 时间奖励的固定系数
+    reward_advantage_weight: float = 5.0 # 过程优势奖励的经验权重 
+    reward_fuel_weight: float = 1.0 # 燃料消耗的经验权重 
+    reward_capture: float = 1000.0 # 成功抓捕的奖励
+    advantage_reward_horizon: float = 3600.0 # 优势奖励的预测时间窗口 (秒, 60分钟)
 
     ###
     # 仿真参数设置
     ###
     dt: float = 60.0  # 每次机动的间隔时间
-    dv_step: float = 1 #
+    p_dv_step: float = 1.5 # 追击方每次机动的最大速度增量, m/s
+    e_dv_step: float = 1.0 # 逃逸方每次机动的最大速度增量, m/s
     hpop_in = HPOP_In(  # HPOP 初始化参数，全局变量
         inial=True,
         mass=50,
@@ -69,8 +76,10 @@ class PEEnvCfg:
         # 修改：允许多个追击方和逃跑方
         assert self.num_p >= 1
         assert self.num_e >= 1
-        assert self.dv_step > 0.0
-        assert self.init_dv > 0.0
+        assert self.p_dv_step > 0.0
+        assert self.e_dv_step > 0.0
+        assert self.p_init_dv > 0.0
+        assert self.e_init_dv > 0.0
 
 
 class PEEnv(ParallelEnv):
@@ -90,92 +99,111 @@ class PEEnv(ParallelEnv):
         self._time = self._config.init_utc
         self.render_mode = None
 
-        # --- 核心修改部分：添加 self.possible_agents ---
-        # possible_agents 是环境中所有可能的智能体ID（不变的列表）
         possible_p = [f'p_{i}' for i in range(self._config.num_p)]
         possible_e = [f'e_{i}' for i in range(self._config.num_e)]
         self.possible_agents = possible_p + possible_e
         
-        # agents 是当前回合活跃的智能体ID（在 reset 中可能会被重置）
         self.agents = []
 
-        # 动作空间、观测空间
-        self.action_spaces = {
-            a: spaces.Box(-self._config.dv_step, self._config.dv_step, shape=(3,))
-            for a in self.possible_agents
-        }
+        self.action_spaces = {}
+        for a in self.possible_agents:
+            if a.startswith('p_'):
+                dv_step = self._config.p_dv_step
+            else:
+                dv_step = self._config.e_dv_step
+            self.action_spaces[a] = spaces.Box(-dv_step, dv_step, shape=(3,))
         
-        # 为不同角色定义不同的观测空间
         self.observation_spaces = {}
         for a in self.possible_agents:
-            if a.startswith('p_'):  # 追击方
-                # 自身状态(6维) + 所有逃跑方位置(3 * num_e维)
+            if a.startswith('p_'):
                 self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=(6 + 3 * self._config.num_e,))
-            else:  # 逃跑方
-                # 自身状态(6维) - 逃跑方看不到追击方
+            else:
                 self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=(6,))
 
         self.states = {a: np.zeros(6, ) for a in self.agents}
         self.remain_Dvs = {a: 0.0 for a in self.agents}
+        self.last_dist = 0.0 # 用于计算奖励塑形
 
-        # 渲染
-        self.viewer = Viewer(
-            width=self._config.width,
-            height=self._config.height,
-            agents=self.agents,
-            max_history=self._config.max_history
-        )
+        # 渲染器将在第一次调用render()时被初始化
+        self.viewer = None
 
     def reset(self, seed=None, options=None):
         self.agents = copy(self.possible_agents)
         sma = 42166300.0  # 轨道半长轴, m
-        ecc = 0.0  # 偏心率，无量纲
-        inc = 0.0  # 轨道倾角，rad
-        argp = 0.0  # 近地点幅角，rad
-        raan = 0.0  # 升交点赤经，rad
-        ta_ref = np.random.uniform(0.0, 2 * np.pi)  # 虚拟参考星真近点角，rad
+        ecc = 0.0
+        inc = 0.0
+        argp = 0.0
+        raan = 0.0
+        ta_ref = np.random.uniform(0.0, 2 * np.pi)
 
-        # 为所有追击方和逃跑方初始化状态
         self.states = {}
+        # 均匀分布n个追击方
+        angle_step = 2 * np.pi / self._config.num_p
         for i in range(self._config.num_p):
             agent_id = f'p_{i}'
-            ta_pur = (ta_ref + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
+            ta_pur = (ta_ref + i * angle_step) % (2 * np.pi)
             self.states[agent_id] = self._orbit_lib.coe2rv(np.array([
                 sma, ecc, inc, raan, argp, ta_pur
             ]))
         
         for i in range(self._config.num_e):
             agent_id = f'e_{i}'
-            ta_eva = (ta_ref + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
-            self.states[agent_id] = self._orbit_lib.coe2rv(np.array([
-                sma, ecc, inc, raan, argp, ta_eva
-            ]))
+            # 确保逃跑方初始位置与最近追击方的距离在 (dist_cap + 20km, dist_cap + 120km) 的动态范围内
+            while True:
+                ta_eva = (ta_ref + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
+                eva_state = self._orbit_lib.coe2rv(np.array([
+                    sma, ecc, inc, raan, argp, ta_eva
+                ]))
+
+                min_dist = float('inf')
+                for j in range(self._config.num_p):
+                    dist = np.linalg.norm(eva_state[:3] - self.states[f'p_{j}'][:3])
+                    if dist < min_dist:
+                        min_dist = dist
+                
+                # 检查与最近的追击方的距离是否在 (dist_cap + 20km, dist_cap + 120km) 范围内
+                if min_dist > self._config.dist_cap + 20.0e3 and min_dist < self._config.dist_cap + 120.0e3:
+                    self.states[agent_id] = eva_state
+                    break
 
         self._time = self._config.init_utc
-        self.remain_Dvs = {a: self._config.init_dv for a in self.agents}
+        
+        self.remain_Dvs = {}
+        for a in self.agents:
+            if a.startswith('p_'):
+                self.remain_Dvs[a] = self._config.p_init_dv
+            else:
+                self.remain_Dvs[a] = self._config.e_init_dv
 
-        self.viewer.reset()
+        # 初始化上一步距离
+        if 'p_0' in self.states and 'e_0' in self.states:
+            self.last_dist = np.linalg.norm(self.states['p_0'][:3] - self.states['e_0'][:3])
+        else:
+            self.last_dist = 0.0
+
+        if self.viewer is not None:
+            self.viewer.reset()
 
         observations = self._get_observations()
-
-        infos = {a: {} for a in self.agents}  # dummy infos
-
+        infos = {a: {} for a in self.agents}
         return observations, infos
 
     def step(self, actions: Dict[str, np.ndarray]):
-        # 施加脉冲
         for a in self.agents:
-            # 动作模约束
-            if np.linalg.norm(actions[a]) > self._config.dv_step:
-                actions[a] = actions[a] / np.linalg.norm(actions[a]) * self._config.dv_step
+            if a.startswith('p_'):
+                dv_step = self._config.p_dv_step
+            else:
+                dv_step = self._config.e_dv_step
+
+            if np.linalg.norm(actions[a]) > dv_step:
+                actions[a] = actions[a] / np.linalg.norm(actions[a]) * dv_step
 
             if np.linalg.norm(actions[a]) > self.remain_Dvs[a]:
                 actions[a] = actions[a] / np.linalg.norm(actions[a]) * self.remain_Dvs[a]
 
-            self.states[a][3:] += actions[a]  # 施加速度增量
+            self.states[a][3:] += actions[a]
             self.remain_Dvs[a] -= np.linalg.norm(actions[a])
 
-        # 在J2000下递推
         for a in self.agents:
             _, new_state = self._orbit_lib.orbit_hpop(
                 self._time,
@@ -187,21 +215,34 @@ class PEEnv(ParallelEnv):
         self._time = self._time + datetime.timedelta(seconds=self._config.dt)
 
         observations = self._get_observations()
-        rewards = self._get_rewards()
+        rewards = self._get_rewards(actions)
         truncations = self._get_truncations()
         terminations = self._get_terminations()
 
-        infos = {a: {} for a in self.agents}  # dummy infos
-        #修复：移除已终止的agents,移除的agent的infos也要打印
-        for agent in list(self.agents):  # 使用list创建副本，避免在迭代时修改
-            if terminations[agent] or truncations[agent]:
+        infos = {a: {} for a in self.agents}
+        for agent in list(self.agents):
+            if terminations.get(agent, False) or truncations.get(agent, False):
+                # For SB3, it's important to have the final observation in the info dict
+                infos[agent]['final_observation'] = observations[agent]
                 self.agents.remove(agent)
 
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
+        if self.viewer is None:
+            self.viewer = Viewer(
+                width=self._config.width,
+                height=self._config.height,
+                agents=self.possible_agents,
+                max_history=self._config.max_history
+            )
         self.viewer.update(self.states)
         return None
+
+    def close(self):
+        if self.viewer is not None:
+            self.viewer.close()
+            self.viewer = None
     
     def observation_space(self, agent):
         return self.observation_spaces[agent]
@@ -210,56 +251,104 @@ class PEEnv(ParallelEnv):
         return self.action_spaces[agent]
 
     def _get_observations(self):
-        # 修改：为不同角色提供不同的观测
         observations = {}
-        
-        # 获取所有逃跑方的位置（用于构建追击方的观测）
         evader_positions = []
         for i in range(self._config.num_e):
             evader_id = f'e_{i}'
             if evader_id in self.states:
                 evader_positions.append(self.states[evader_id][:3])
         
-        # 为每个智能体构建观测
-        for agent_id in self.agents:
-            if agent_id.startswith('p_'):  # 追击方
-                # 自身状态 + 所有逃跑方位置
+        for agent_id in self.possible_agents: # Observe for all possible agents
+            if agent_id not in self.states:
+                continue # Skip if state is not available
+
+            if agent_id.startswith('p_'):
                 obs = np.concatenate([
-                    self.states[agent_id],  # 自身状态 (6维)
-                    np.concatenate(evader_positions)  # 所有逃跑方位置 (3 * num_e维)
+                    self.states[agent_id],
+                    np.concatenate(evader_positions) if evader_positions else np.array([])
                 ])
-            else:  # 逃跑方
-                # 逃跑方只能看到自身状态
-                obs = self.states[agent_id]  # 自身状态 (6维)
-            
+            else:
+                obs = self.states[agent_id]
             observations[agent_id] = obs
         
         return observations
 
-    def _get_rewards(self):
-        # TODO: 构造rewards
-        # 注意：这里只考虑第一个追击方和第一个逃跑方
-        # 后续可以根据需要扩展
+    def _get_rewards(self, actions: Dict[str, np.ndarray]):
         rewards = {a: 0.0 for a in self.agents}
         
-        # 计算第一个追击方和第一个逃跑方的距离
-        if 'p_0' in self.states and 'e_0' in self.states:
-            dist = np.linalg.norm(self.states['p_0'][:3] - self.states['e_0'][:3])
-        else:
-            dist = 0.0  # 如果不存在，设为0
-        
-        for a in self.agents:
-            if a.startswith('p_'):  # 追击方
-                rewards[a] += -dist * self._config.coeff_dist
-            else:  # 逃跑方
-                rewards[a] += dist * self._config.coeff_dist
 
-        if dist <= self._config.dist_cap:
-            for a in self.agents:
-                if a.startswith('p_'):  # 追击方
-                    rewards[a] += self._config.coeff_cap
-                else:  # 逃跑方
-                    rewards[a] += -self._config.coeff_cap
+        p_agent = 'p_0'
+        e_agent = 'e_0'
+
+        if p_agent not in self.states or e_agent not in self.states:
+            return rewards
+
+        p_state = self.states[p_agent]
+        e_state = self.states[e_agent]
+        
+        # --- 1. 距离奖励 (Distance Reward) ---
+        current_dist = np.linalg.norm(p_state[:3] - e_state[:3])
+        dist_reward = self._config.reward_dist_weight * current_dist
+        rewards[p_agent] -= dist_reward
+        rewards[e_agent] += dist_reward
+
+        # --- 2. 时间奖励 (Time Reward) ---
+        is_capture_condition_met = current_dist < self._config.dist_cap
+        if not is_capture_condition_met:
+            rewards[p_agent] -= self._config.reward_time_weight
+            rewards[e_agent] += self._config.reward_time_weight
+        
+        # --- 4. 燃料消耗奖励 (Fuel Consumption Reward) ---
+        for agent_id, action in actions.items():
+            if agent_id in rewards:
+                fuel_consumption = np.linalg.norm(action)
+                fuel_penalty = self._config.reward_fuel_weight * fuel_consumption
+                rewards[agent_id] -= fuel_penalty
+
+        # --- 3. 过程优势诱导奖励 (radv) ---
+        # (新版设计：固定预测60步，结合时间和距离，区分奖励与惩罚)
+        num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
+        
+        if num_future_steps > 0:
+            temp_p_state = np.copy(p_state)
+            temp_e_state = np.copy(e_state)
+            
+            future_dists = []
+            for step in range(num_future_steps):
+                current_sim_time = self._time + datetime.timedelta(seconds=step * self._config.dt)
+                
+                _, temp_p_state = self._orbit_lib.orbit_hpop(
+                    current_sim_time, temp_p_state, self._config.dt, self._config.hpop_in
+                )
+                _, temp_e_state = self._orbit_lib.orbit_hpop(
+                    current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in
+                )
+                
+                future_dists.append(np.linalg.norm(temp_p_state[:3] - temp_e_state[:3]))
+
+            if future_dists:
+                min_future_dist = min(future_dists)
+                delta_h_steps = future_dists.index(min_future_dist) + 1
+
+                if min_future_dist < self._config.dist_cap:
+                    # 奖励: 预测能抓捕。越早、越近，奖励越高
+                    time_factor = (num_future_steps - delta_h_steps) / num_future_steps
+                    dist_factor = (self._config.dist_cap - min_future_dist) / self._config.dist_cap
+                    radv = self._config.reward_advantage_weight * time_factor * dist_factor
+                else:
+                    # 惩罚: 预测不能抓捕。越早、越远，惩罚越大
+                    time_factor = (num_future_steps - delta_h_steps) / num_future_steps
+                    miss_dist = min_future_dist - self._config.dist_cap
+                    dist_factor = 1 - np.exp(-2.3e-5 * miss_dist) # 归一化距离惩罚因子
+                    radv = -self._config.reward_advantage_weight * time_factor * dist_factor
+                
+                rewards[p_agent] += radv
+                rewards[e_agent] -= radv
+
+        # --- 5. 终端奖励 (Terminal Reward) ---
+        if is_capture_condition_met:
+            rewards[p_agent] += self._config.reward_capture
+            rewards[e_agent] -= self._config.reward_capture
 
         return rewards
 
@@ -267,13 +356,11 @@ class PEEnv(ParallelEnv):
         """ 判断是否成功抓捕 """
         terminations = {a: False for a in self.agents}
         
-        # 距离判断（只考虑第一个追击方和第一个逃跑方）
         if 'p_0' in self.states and 'e_0' in self.states:
             dist = np.linalg.norm(self.states['p_0'][:3] - self.states['e_0'][:3])
             if dist < self._config.dist_cap:
                 terminations = {a: True for a in self.agents}
         
-        # 剩余速度增量判断
         if any(dv <= 0 for dv in self.remain_Dvs.values()):
             terminations = {a: True for a in self.agents}
 
