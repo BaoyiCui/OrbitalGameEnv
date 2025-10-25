@@ -13,13 +13,17 @@ from collections import deque
 import time
 import random
 
-# 导入新的POMDP环境和LSTM
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
 from env.lstm import TrajectoryPredictor
+
+from env.encoder import AttentionBasedEncoder
 
 # --- 1. 超参数配置 ---
 class TrainConfig:
     """训练超参数配置"""
+    # --- Encoder 配置 ---
+    use_encoder: bool = False  # 选择策略网络是否使用Encoder
+
     # --- 算法超参数 ---
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -54,17 +58,44 @@ class TrainConfig:
     run_name: str = f"mpe_pomdp_lstm_{int(time.time())}"
 
 
-# --- 2. Actor-Critic 网络 (包含LSTM) ---
+# --- 2. Actor-Critic 网络 (包含LSTM和可选的Encoder) ---
 class ActorCritic(nn.Module):
-    def __init__(self, actor_obs_dim, critic_obs_dim, act_dim, lstm_cfg):
+    def __init__(self, actor_obs_dim, critic_obs_dim, act_dim, env_cfg, train_cfg):
         super().__init__()
-        self.actor_net = nn.Sequential(
-            nn.Linear(actor_obs_dim, 256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            nn.Tanh(),
-            nn.Linear(256, act_dim)
-        )
+        self.use_encoder = train_cfg.use_encoder
+        
+        if self.use_encoder:
+            # --- 编码器 ---
+            # 根据环境配置计算AttentionBasedEncoder所需的维度
+            self_dim = 6  # 自身状态维度
+            lstm_pred_dim = env_cfg.lstm_future_len * 3 * env_cfg.num_e
+            other_dim = 3 * (env_cfg.num_p - 1)
+            ob_dim = 0 # 当前环境没有障碍物, 设置为0
+            
+            self.encoder = AttentionBasedEncoder(
+                self_dim=self_dim,
+                other_dim=other_dim,
+                ob_dim=ob_dim,
+                lstm_pred_dim=lstm_pred_dim,
+                embed_dim=128,
+                nhead=4
+            )
+            encoder_output_dim = 256 # Encoder的输出维度
+            
+            # Actor网络头
+            self.actor_head = nn.Linear(encoder_output_dim, act_dim)
+
+        else:
+            # --- 不使用Encoder，维持原有简单MLP结构 ---
+            self.actor_net = nn.Sequential(
+                nn.Linear(actor_obs_dim, 256),
+                nn.Tanh(),
+                nn.Linear(256, 256),
+                nn.Tanh(),
+                nn.Linear(256, act_dim)
+            )
+
+        # --- Critic网络 (保持中心化，不变) ---
         self.critic_net = nn.Sequential(
             nn.Linear(critic_obs_dim, 512),
             nn.Tanh(),
@@ -72,12 +103,14 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             nn.Linear(512, 1)
         )
+        
         self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
-        # 创建LSTM实例
+        
+        # --- 轨迹预测网络 (不变) ---
         self.lstm = TrajectoryPredictor(
             input_dim=6, 
             hidden_dim=128, 
-            output_dim=lstm_cfg.lstm_future_len * 3, 
+            output_dim=env_cfg.lstm_future_len * 3, 
             num_layers=2
         )
 
@@ -85,16 +118,29 @@ class ActorCritic(nn.Module):
         return self.critic_net(central_obs)
 
     def get_action_and_value(self, obs, central_obs, action=None):
-        action_mean = self.actor_net(obs)
+        # 根据是否使用Encoder选择不同的路径
+        if self.use_encoder:
+            # 通过编码器获取特征向量
+            h = self.encoder(obs)
+            # 通过Actor头获取动作均值
+            action_mean = self.actor_head(h)
+        else:
+            action_mean = self.actor_net(obs)
+
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = torch.distributions.Normal(action_mean, action_std)
+        
         if action is None:
             action = probs.sample()
+            
         log_prob = probs.log_prob(action).sum(1)
         entropy = probs.entropy().sum(1)
-        value = self.critic_net(central_obs)
+        value = self.critic_net(central_obs) # Critic部分不变
+        
         return action, log_prob, entropy, value
+
+
 
 
 # --- 3. Rollout Buffer (支持中心化Critic和监督学习SL) ---
@@ -194,10 +240,18 @@ def train():
     critic_obs_dim = sum(env.observation_spaces[p_id].shape[0] for p_id in pursuer_ids)
     act_dim = env.action_spaces[pursuer_ids[0]].shape[0]
 
-    # 创建Agent，包含LSTM
-    agent = ActorCritic(actor_obs_dim, critic_obs_dim, act_dim, env_cfg).to(cfg.device)
+    # 创建Agent，包含LSTM和新的Encoder
+    agent = ActorCritic(actor_obs_dim, critic_obs_dim, act_dim, env_cfg, cfg).to(cfg.device)
+    
     # 为RL和SL创建不同的优化器
-    ac_params = list(agent.actor_net.parameters()) + list(agent.critic_net.parameters()) + [agent.actor_logstd]
+    # 根据是否使用encoder，选择不同的参数进行优化
+    if cfg.use_encoder:
+        # 优化器包含Encoder和Actor Head的参数
+        ac_params = list(agent.encoder.parameters()) + list(agent.actor_head.parameters()) + list(agent.critic_net.parameters()) + [agent.actor_logstd]
+    else:
+        # 优化器包含原始actor_net的参数
+        ac_params = list(agent.actor_net.parameters()) + list(agent.critic_net.parameters()) + [agent.actor_logstd]
+
     optimizer = torch.optim.Adam(ac_params, lr=cfg.lr, eps=1e-5)
     lstm_optimizer = torch.optim.Adam(agent.lstm.parameters(), lr=cfg.sl_lr, eps=1e-5)
     sl_loss_fn = nn.MSELoss()
@@ -292,7 +346,12 @@ def train():
                 # 1. 更新 Actor-Critic (RL)
                 optimizer.zero_grad()
                 rl_loss.backward()
-                nn.utils.clip_grad_norm_(list(agent.actor_net.parameters()) + list(agent.critic_net.parameters()), 0.5)
+                # 根据使用的网络结构裁剪对应的梯度
+                if cfg.use_encoder:
+                    grad_params = list(agent.encoder.parameters()) + list(agent.actor_head.parameters()) + list(agent.critic_net.parameters())
+                else:
+                    grad_params = list(agent.actor_net.parameters()) + list(agent.critic_net.parameters())
+                nn.utils.clip_grad_norm_(grad_params, 0.5)
                 optimizer.step()
 
                 # 2. 更新 LSTM (SL)

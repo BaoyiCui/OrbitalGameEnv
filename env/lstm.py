@@ -10,8 +10,7 @@ class TrajectoryPredictor(nn.Module):
     该模型接收一个智能体过去一段时间的绝对状态（位置和速度）序列，
     并直接预测其未来的绝对位置轨迹。
 
-    坐标系转换的逻辑（例如，从绝对预测转换为相对观测）将在环境的
-    观测函数中处理，以保持模型的简洁性。
+    坐标系转换的逻辑将在环境的观测函数中处理，以保持模型的简洁性。
     """
     def __init__(self, input_dim: int = 6, hidden_dim: int = 128, output_dim: int = 30, num_layers: int = 2):
         """
