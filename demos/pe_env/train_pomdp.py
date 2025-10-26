@@ -95,7 +95,7 @@ class ActorCritic(nn.Module):
                 nn.Linear(256, act_dim)
             )
 
-        # --- Critic网络 (保持中心化，不变) ---
+        # --- Critic网络 ---
         self.critic_net = nn.Sequential(
             nn.Linear(critic_obs_dim, 512),
             nn.Tanh(),
@@ -106,7 +106,7 @@ class ActorCritic(nn.Module):
         
         self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
         
-        # --- 轨迹预测网络 (不变) ---
+        # --- 轨迹预测网络 ---
         self.lstm = TrajectoryPredictor(
             input_dim=6, 
             hidden_dim=128, 
@@ -136,7 +136,7 @@ class ActorCritic(nn.Module):
             
         log_prob = probs.log_prob(action).sum(1)
         entropy = probs.entropy().sum(1)
-        value = self.critic_net(central_obs) # Critic部分不变
+        value = self.critic_net(central_obs) 
         
         return action, log_prob, entropy, value
 
