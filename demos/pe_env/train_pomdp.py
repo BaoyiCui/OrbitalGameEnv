@@ -15,14 +15,13 @@ import random
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
 from env.lstm import TrajectoryPredictor
-
 from env.encoder import AttentionBasedEncoder
 
 # --- 1. 超参数配置 ---
 class TrainConfig:
     """训练超参数配置"""
     # --- Encoder 配置 ---
-    use_encoder: bool = False  # 选择策略网络是否使用Encoder
+    use_encoder: bool = True  # 选择是否使用新的Encoder结构
 
     # --- 算法超参数 ---
     gamma: float = 0.99
@@ -65,8 +64,7 @@ class ActorCritic(nn.Module):
         self.use_encoder = train_cfg.use_encoder
         
         if self.use_encoder:
-            # --- 编码器 ---
-            # 根据环境配置计算AttentionBasedEncoder所需的维度
+            # --- 使用统一的注意力编码器 ---
             self_dim = 6  # 自身状态维度
             lstm_pred_dim = env_cfg.lstm_future_len * 3 * env_cfg.num_e
             other_dim = 3 * (env_cfg.num_p - 1)
@@ -82,7 +80,6 @@ class ActorCritic(nn.Module):
             )
             encoder_output_dim = 256 # Encoder的输出维度
             
-            # Actor网络头
             self.actor_head = nn.Linear(encoder_output_dim, act_dim)
 
         else:
@@ -118,11 +115,8 @@ class ActorCritic(nn.Module):
         return self.critic_net(central_obs)
 
     def get_action_and_value(self, obs, central_obs, action=None):
-        # 根据是否使用Encoder选择不同的路径
         if self.use_encoder:
-            # 通过编码器获取特征向量
             h = self.encoder(obs)
-            # 通过Actor头获取动作均值
             action_mean = self.actor_head(h)
         else:
             action_mean = self.actor_net(obs)
@@ -136,11 +130,9 @@ class ActorCritic(nn.Module):
             
         log_prob = probs.log_prob(action).sum(1)
         entropy = probs.entropy().sum(1)
-        value = self.critic_net(central_obs) 
+        value = self.critic_net(central_obs)
         
         return action, log_prob, entropy, value
-
-
 
 
 # --- 3. Rollout Buffer (支持中心化Critic和监督学习SL) ---
@@ -156,7 +148,6 @@ class CentralizedRolloutBuffer:
         self.rewards = torch.zeros((num_steps, num_agents)).to(device)
         self.dones = torch.zeros((num_steps, num_agents)).to(device)
         self.values = torch.zeros((num_steps, num_agents)).to(device)
-        # 为监督学习数据创建存储
         self.sl_history_inputs = torch.zeros((num_steps, num_agents, lstm_cfg.lstm_history_len, 6)).to(device)
         self.sl_future_gts = torch.zeros((num_steps, num_agents, lstm_cfg.lstm_future_len, 3)).to(device)
         self.step = 0
@@ -169,9 +160,7 @@ class CentralizedRolloutBuffer:
         self.rewards[self.step] = rewards
         self.dones[self.step] = dones
         self.values[self.step] = values
-        # 从infos中提取并存储SL数据
         for i, agent_id in enumerate(pursuer_ids):
-            # 假设只有一个逃跑者 e_0
             if agent_id in infos and f'sl_history_input_e_0' in infos[agent_id]:
                 self.sl_history_inputs[self.step, i] = torch.from_numpy(infos[agent_id][f'sl_history_input_e_0']).to(self.device)
                 self.sl_future_gts[self.step, i] = torch.from_numpy(infos[agent_id][f'sl_future_ground_truth_e_0']).to(self.device)
@@ -223,7 +212,6 @@ def train():
     writer = SummaryWriter(f"runs/{cfg.run_name}")
     writer.add_text("hyperparameters", f"<pre>{vars(cfg)}</pre>")
 
-    # 使用新的POMDP环境
     env = MPE_POMDP_Env(env_cfg)
     
     current_episode_length = cfg.initial_episode_length
@@ -240,23 +228,17 @@ def train():
     critic_obs_dim = sum(env.observation_spaces[p_id].shape[0] for p_id in pursuer_ids)
     act_dim = env.action_spaces[pursuer_ids[0]].shape[0]
 
-    # 创建Agent，包含LSTM和新的Encoder
     agent = ActorCritic(actor_obs_dim, critic_obs_dim, act_dim, env_cfg, cfg).to(cfg.device)
     
-    # 为RL和SL创建不同的优化器
-    # 根据是否使用encoder，选择不同的参数进行优化
     if cfg.use_encoder:
-        # 优化器包含Encoder和Actor Head的参数
         ac_params = list(agent.encoder.parameters()) + list(agent.actor_head.parameters()) + list(agent.critic_net.parameters()) + [agent.actor_logstd]
     else:
-        # 优化器包含原始actor_net的参数
         ac_params = list(agent.actor_net.parameters()) + list(agent.critic_net.parameters()) + [agent.actor_logstd]
 
     optimizer = torch.optim.Adam(ac_params, lr=cfg.lr, eps=1e-5)
     lstm_optimizer = torch.optim.Adam(agent.lstm.parameters(), lr=cfg.sl_lr, eps=1e-5)
     sl_loss_fn = nn.MSELoss()
 
-    # 将LSTM模型传递给环境
     env.set_policy_lstm(agent.lstm)
 
     buffer = CentralizedRolloutBuffer(cfg.num_steps, env_cfg.num_p, actor_obs_dim, critic_obs_dim, act_dim, cfg.device, env_cfg)
@@ -266,11 +248,11 @@ def train():
     episode_stats = deque(maxlen=cfg.curriculum_check_episodes)
 
     obs, infos = env.reset()
+    episode_lambert_reward = 0.0
     
     for update in range(1, num_updates + 1):
         start_time = time.time()
         
-        # 切换到评估模式进行数据采集
         agent.eval()
         for step in range(cfg.num_steps):
             global_step += 1
@@ -305,6 +287,7 @@ def train():
                     print(f"G_Step:{global_step}, Ep_Done, Reason:{final_info.get('termination_reason', 'Unknown')}, Pursuer_Reward:{pursuer_total_reward:.2f}")
                     writer.add_scalar("charts/episode_reward", pursuer_total_reward, global_step)
                 obs, infos = env.reset()
+                episode_lambert_reward = 0.0
 
         with torch.no_grad():
             next_pursuer_obs = [torch.Tensor(obs[name]).to(cfg.device) for name in pursuer_ids if name in obs]
@@ -319,11 +302,9 @@ def train():
         batch_size = cfg.num_steps * env_cfg.num_p
         mini_batch_size = batch_size // cfg.num_mini_batches
         
-        # 切换到训练模式进行更新
         agent.train()
         for epoch in range(cfg.update_epochs):
             for b_obs, b_central_obs, b_actions, b_logprobs, b_advantages, b_returns, b_sl_hist, b_sl_gt in buffer.get(batch_size, mini_batch_size):
-                # --- RL 损失 ---
                 _, new_logprob, entropy, new_value = agent.get_action_and_value(b_obs, b_central_obs, b_actions)
                 new_value = new_value.view(-1)
                 v_loss = 0.5 * ((new_value - b_returns) ** 2).mean()
@@ -336,17 +317,12 @@ def train():
                 entropy_loss = entropy.mean()
                 rl_loss = pg_loss - cfg.ent_coef * entropy_loss + v_loss * cfg.vf_coef
 
-                # --- SL 损失 ---
                 sl_mask = b_sl_hist.abs().sum(dim=-1) > 1e-6
                 sl_pred = agent.lstm(b_sl_hist, mask=sl_mask)
                 sl_loss = sl_loss_fn(sl_pred, b_sl_gt.view(b_sl_gt.shape[0], -1))
 
-                
-
-                # 1. 更新 Actor-Critic (RL)
                 optimizer.zero_grad()
                 rl_loss.backward()
-                # 根据使用的网络结构裁剪对应的梯度
                 if cfg.use_encoder:
                     grad_params = list(agent.encoder.parameters()) + list(agent.actor_head.parameters()) + list(agent.critic_net.parameters())
                 else:
@@ -354,9 +330,7 @@ def train():
                 nn.utils.clip_grad_norm_(grad_params, 0.5)
                 optimizer.step()
 
-                # 2. 更新 LSTM (SL)
                 lstm_optimizer.zero_grad()
-                # 乘以权重系数
                 weighted_sl_loss = sl_loss * cfg.sl_coef
                 weighted_sl_loss.backward()
                 nn.utils.clip_grad_norm_(agent.lstm.parameters(), 0.5)
@@ -392,6 +366,8 @@ def train():
     env.close()
     writer.close()
     print("训练完成!")
+
+
 
 if __name__ == "__main__":
     train()

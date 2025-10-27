@@ -18,17 +18,19 @@ class MPEEnvCfg(PEEnvCfg):
     num_e: int = 1
     
     # --- 覆盖多智能体逻辑的奖励权重 ---
-    reward_dist_weight: float = 0.3  # 距离权重
+    reward_dist_weight: float = 0.01  # 距离权重
     reward_time_weight: float = 0.05  # 时间惩罚权重
     reward_formation_weight: float = 0.04  # 群体形成奖励权重
     reward_fuel_weight: float = 0.2  # 燃料消耗惩罚权重
     # 稀疏奖励
-    reward_capture: float = 20.0  # 成功抓捕的奖励
+    # Reward settings
+    capture_reward: float = 20.0
     reward_timeout_penalty: float = -2.0  # 超时失败的惩罚
     reward_fuelout_penalty: float = -2.0  # 燃料耗尽的惩罚
+    fuel_penalty_weight: float = 0.1
 
     # 过程优势奖励参数
-    reward_advantage_weight: float = 0.4  # 过程优势奖励的权重
+    reward_advantage_weight: float = 0.5  # 过程优势奖励的权重
     advantage_reward_horizon: float = 3600*5  # 优势奖励的预测时间窗口（单位秒）
     arena_radius: float = 100e+3  # 参考距离（单位：米），用于距离缩小
 
@@ -42,6 +44,9 @@ class MPEEnv(PEEnv):
         # 初始化基类。基类的__init__会完成所有设置
         # 除了需要在此处覆盖的观测空间
         super().__init__(config)
+
+        self.pursuer_ids = [f'p_{i}' for i in range(self._config.num_p)]
+        self.evader_ids = [f'e_{i}' for i in range(self._config.num_e)]
         
         self.metadata["is_parallelizable"] = True
         
@@ -132,14 +137,12 @@ class MPEEnv(PEEnv):
         
         # 收集位置信息
         pursuer_positions = []
-        pursuer_ids = [f'p_{i}' for i in range(self._config.num_p)]
-        for pid in pursuer_ids:
+        for pid in self.pursuer_ids:
             if pid in self.states:
                 pursuer_positions.append(self.states[pid][:3])
         
         evader_positions = []
-        evader_ids = [f'e_{i}' for i in range(self._config.num_e)]
-        for eid in evader_ids:
+        for eid in self.evader_ids:
             if eid in self.states:
                 evader_positions.append(self.states[eid][:3])
         
@@ -158,11 +161,11 @@ class MPEEnv(PEEnv):
 
         # 过程优势奖励
         num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
-        future_rewards = {a: 0.0 for a in pursuer_ids}  # 为每个追击方存储过程优势奖励
+        future_rewards = {a: 0.0 for a in self.pursuer_ids}  # 为每个追击方存储过程优势奖励
         
-        if num_future_steps > 0 and evader_ids[0] in self.states:
+        if num_future_steps > 0 and self.evader_ids[0] in self.states:
             # 预测逃逸方轨迹
-            temp_e_state = np.copy(self.states[evader_ids[0]])
+            temp_e_state = np.copy(self.states[self.evader_ids[0]])
             future_e_traj = []
             for step in range(num_future_steps):
                 current_sim_time = self._time + datetime.timedelta(seconds=step * self._config.dt)
@@ -172,7 +175,7 @@ class MPEEnv(PEEnv):
                 future_e_traj.append(temp_e_state[:3])
             
             # 为每个追击方计算过程优势奖励
-            for i, agent_id in enumerate(pursuer_ids):
+            for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
                     temp_p_state = np.copy(self.states[agent_id])
                     min_future_dist = float('inf')
@@ -204,7 +207,7 @@ class MPEEnv(PEEnv):
                     future_rewards[agent_id] = radv
 
         # 分配奖励
-        for i, agent_id in enumerate(pursuer_ids):
+        for i, agent_id in enumerate(self.pursuer_ids):
             if agent_id in self.agents:
                 # 缩小距离
                 normalized_dist = dists_to_evader[i] / self._config.arena_radius
@@ -225,7 +228,7 @@ class MPEEnv(PEEnv):
 
         # 抓捕成功/失败的终端奖励
         if capture_occurred:
-            for i, agent_id in enumerate(pursuer_ids):
+            for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
                     if dists_to_evader[i] < self._config.dist_cap:
                         rewards[agent_id] += self._config.reward_capture  # 捕获者奖励
@@ -272,8 +275,7 @@ class MPEEnv(PEEnv):
         
         if evader_pos is not None:
             capture_occurred = False
-            for i in range(self._config.num_p):
-                pursuer_id = f'p_{i}'
+            for pursuer_id in self.pursuer_ids:
                 if pursuer_id in self.states:
                     dist = np.linalg.norm(self.states[pursuer_id][:3] - evader_pos)
                     if dist < self._config.dist_cap:
@@ -346,10 +348,6 @@ class MPEEnv(PEEnv):
             
             if reason == 'capture_success':
                 self.episode_statistics['success_count'] += 1
-                # 为成功添加额外奖励
-                for a in self.agents:
-                    if a.startswith('p_'):
-                        rewards[a] += self._config.reward_capture
             elif reason == 'timeout':
                 self.episode_statistics['timeout_count'] += 1
                 # 为超时给追击方添加惩罚
