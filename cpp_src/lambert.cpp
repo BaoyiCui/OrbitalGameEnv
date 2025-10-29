@@ -2,7 +2,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <numeric>
-
+#include <vector>
 // Define M_PI if not defined (e.g., in MSVC)
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -106,8 +106,9 @@ std::vector<double> solve_lambert(
 
 } // namespace astrodynamics
 
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#include "/home/star/miniconda3/envs/orbit/include/pybind11/pybind11.h"
+#include "/home/star/miniconda3/envs/orbit/include/pybind11/stl.h"
+
 
 PYBIND11_MODULE(lambert_solver, m) {
     m.doc() = "Lambert problem solver";

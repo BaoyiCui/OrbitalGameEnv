@@ -57,14 +57,14 @@ class TrainConfig:
     run_name: str = f"mpe_pomdp_lstm_{int(time.time())}"
 
 
-# --- 2. Actor-Critic 网络 (包含LSTM和可选的Encoder) ---
+# --- 2. Actor-Critic 网络 ---
 class ActorCritic(nn.Module):
     def __init__(self, actor_obs_dim, critic_obs_dim, act_dim, env_cfg, train_cfg):
         super().__init__()
         self.use_encoder = train_cfg.use_encoder
         
         if self.use_encoder:
-            # --- 使用统一的注意力编码器 ---
+            # --- 使用注意力编码器 ---
             self_dim = 6  # 自身状态维度
             lstm_pred_dim = env_cfg.lstm_future_len * 3 * env_cfg.num_e
             other_dim = 3 * (env_cfg.num_p - 1)
@@ -135,7 +135,7 @@ class ActorCritic(nn.Module):
         return action, log_prob, entropy, value
 
 
-# --- 3. Rollout Buffer (支持中心化Critic和监督学习SL) ---
+# --- 3. Rollout Buffer ---
 class CentralizedRolloutBuffer:
     def __init__(self, num_steps, num_agents, actor_obs_dim, critic_obs_dim, act_dim, device, lstm_cfg):
         self.num_steps = num_steps
@@ -201,10 +201,7 @@ class CentralizedRolloutBuffer:
             )
 
 # --- 4. 训练主函数 ---
-def train():
-    cfg = TrainConfig()
-    env_cfg = MPE_POMDP_EnvCfg()
-    
+def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
@@ -370,4 +367,7 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    print("Running training with default configurations.")
+    train_cfg = TrainConfig()
+    env_cfg = MPE_POMDP_EnvCfg()
+    train(train_cfg, env_cfg)

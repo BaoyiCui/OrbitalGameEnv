@@ -21,16 +21,16 @@ except ImportError:
 
 @dataclass
 class MPE_POMDP_EnvCfg(MPEEnvCfg):
-    """继承并扩展MPE配置，加入POMDP和LSTM的特定参数"""
+    """加入POMDP和LSTM的特定参数"""
     use_partial_obs: bool = True
     obs_interval: int = 2
     lstm_history_len: int = 20
     lstm_future_len: int = 10
 
     # Lambert奖励配置 
-    use_lambert_reward: bool = False
+    use_lambert_reward: bool = True
     lambert_reward_weight: float = 5
-    lambert_transfer_time: float = 36000
+    lambert_transfer_time: float = 7200#Lambert转移时间（秒）
     mu: float = 3.986004418e14
 
 class MPE_POMDP_Env(MPEEnv):

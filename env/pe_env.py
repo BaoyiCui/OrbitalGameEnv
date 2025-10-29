@@ -35,13 +35,13 @@ class PEEnvCfg:
     episode_length: float = 3600.0 * 24  # 每个episode的时间长度
 
     ###
-    # 奖励函数设计 (New)
+    # 奖励函数设计
     ###
     reward_dist_weight: float = 0.00001 # 距离奖励的经验权重 
     reward_time_weight: float = 0.1 # 时间奖励的固定系数
     reward_advantage_weight: float = 5.0 # 过程优势奖励的经验权重 
     reward_fuel_weight: float = 1.0 # 燃料消耗的经验权重 
-    reward_capture: float = 1000.0 # 成功抓捕的奖励
+    reward_capture: float = 20.0 # 成功抓捕的奖励
     advantage_reward_horizon: float = 3600.0 # 优势奖励的预测时间窗口 (秒, 60分钟)
 
     ###

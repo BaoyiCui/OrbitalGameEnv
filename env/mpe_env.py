@@ -18,10 +18,10 @@ class MPEEnvCfg(PEEnvCfg):
     num_e: int = 1
     
     # --- 覆盖多智能体逻辑的奖励权重 ---
-    reward_dist_weight: float = 0.01  # 距离权重
+    reward_dist_weight: float = 0.05  # 距离权重
     reward_time_weight: float = 0.05  # 时间惩罚权重
     reward_formation_weight: float = 0.04  # 群体形成奖励权重
-    reward_fuel_weight: float = 0.2  # 燃料消耗惩罚权重
+    reward_fuel_weight: float = 4  # 燃料消耗惩罚权重
     # 稀疏奖励
     # Reward settings
     capture_reward: float = 20.0
