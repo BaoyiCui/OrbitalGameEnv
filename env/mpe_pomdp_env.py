@@ -118,10 +118,24 @@ class MPE_POMDP_Env(MPEEnv):
         if any(terminations.values()):
             self.episode_statistics['total_episodes'] += 1
             reason = list(termination_reasons.values())[0] if termination_reasons else 'unknown'
-            if reason == 'capture_success': self.episode_statistics['success_count'] += 1
-            elif reason == 'timeout': self.episode_statistics['timeout_count'] += 1
-            elif reason == 'fuel_out': self.episode_statistics['fuelout_count'] += 1
-            if self.episode_statistics['total_episodes'] > 0: self.episode_statistics['success_rate'] = self.episode_statistics['success_count'] / self.episode_statistics['total_episodes']
+            
+            if reason == 'capture_success':
+                self.episode_statistics['success_count'] += 1
+            elif reason == 'timeout':
+                self.episode_statistics['timeout_count'] += 1
+                # 为超时给追击方添加惩罚
+                for a in self.agents:
+                    if a.startswith('p_'):
+                        rewards[a] += self._config.reward_timeout_penalty
+            elif reason == 'fuel_out':
+                self.episode_statistics['fuelout_count'] += 1
+                # 为燃料耗尽给追击方添加惩罚
+                for a in self.agents:
+                    if a.startswith('p_'):
+                        rewards[a] += self._config.reward_fuelout_penalty
+            
+            if self.episode_statistics['total_episodes'] > 0:
+                self.episode_statistics['success_rate'] = self.episode_statistics['success_count'] / self.episode_statistics['total_episodes']
 
         for agent in self.agents:
             current_infos[agent]['termination_reason'] = termination_reasons.get(agent, None)

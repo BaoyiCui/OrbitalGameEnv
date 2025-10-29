@@ -22,15 +22,15 @@ from demos.pe_env.train_pomdp import train, TrainConfig
 # ==================================================================
 NEW_REWARD_DEFAULTS = {
     # --- 奖励 ---
-    "lambert_reward_weight": 5.0,
-    "reward_dist_weight": 0.05,
-    "reward_time_weight": 0.05,
-    "reward_formation_weight": 0.04,
-    "reward_fuel_weight": 4.0,
-    "reward_advantage_weight": 0.5,
+    "lambert_reward_weight": 0.5,
+    "reward_dist_weight": 2.0,
+    "reward_time_weight": 0.01,
+    "reward_formation_weight": 0.5,
+    "reward_fuel_weight": 0.1,
+    "reward_advantage_weight": 0.2,
     "capture_reward": 20.0,
-    "reward_timeout_penalty": -2.0,
-    "reward_fuelout_penalty": -2.0,
+    "reward_timeout_penalty": -1.0,
+    "reward_fuelout_penalty": -0.2,
 }
 
 def main():

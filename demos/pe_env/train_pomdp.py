@@ -45,9 +45,9 @@ class TrainConfig:
     curriculum_check_episodes: int = 50
     success_rate_threshold: float = 0.7
     initial_dist_cap: float = 60e3
-    initial_p_init_dv: float = 500.0
+    initial_p_init_dv: float = 50000.0
     dist_cap_decrement: float = 1e3
-    p_init_dv_decrement: float = 10.0
+    p_init_dv_decrement: float = 100.0
     min_dist_cap: float = 30e3
     min_p_init_dv: float = 200.0
 

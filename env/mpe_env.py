@@ -64,6 +64,10 @@ class MPEEnv(PEEnv):
         
         self.infos = {a: {} for a in self.possible_agents}
 
+        # 用于渐进式奖励的状态变量
+        self.previous_dists: Dict[str, float] = {}
+        self.min_dists: Dict[str, float] = {}
+
         # 用于课程学习的统计信息
         self.episode_statistics = {
             'success_count': 0,
@@ -148,97 +152,102 @@ class MPEEnv(PEEnv):
         
         if not evader_positions or not pursuer_positions:
             return rewards
+
+        # 计算到逃逸方的距离
+        dists_to_evader = [np.linalg.norm(p_pos - evader_positions[0]) for p_pos in pursuer_positions]
         
-        # 计算阵型得分
+        # 1. 渐进式接近奖励
+        dist_rewards = {}
+        for i, agent_id in enumerate(self.pursuer_ids):
+            if agent_id in self.agents:
+                current_dist = dists_to_evader[i]
+                prev_dist = self.previous_dists.get(agent_id, float('inf'))
+                min_dist = self.min_dists.get(agent_id, float('inf'))
+
+                # 奖励接近，惩罚远离
+                dist_change_reward = self._config.reward_dist_weight * (prev_dist - current_dist) / self._config.arena_radius
+
+                # 达到更小距离时给予额外奖励
+                min_dist_bonus = 0.4
+                if current_dist < min_dist:
+                    min_dist_bonus = self._config.reward_dist_weight * (min_dist - current_dist) / self._config.arena_radius
+                    self.min_dists[agent_id] = current_dist
+                
+                dist_rewards[agent_id] = dist_change_reward + min_dist_bonus
+                
+                # 更新上一时刻的距离
+                self.previous_dists[agent_id] = current_dist
+
+        # 2. 队形奖励
         formation_score = self._calculate_formation_score(pursuer_positions, evader_positions[0])
-        
-        # 计算群体形成奖励
-        formation_reward = -self._config.reward_formation_weight * formation_score
+        # 队形越好(score越小)，奖励越高
+        formation_reward = self._config.reward_formation_weight * (1.0 / (1.0 + formation_score))
         
         # 检查抓捕状态
-        dists_to_evader = [np.linalg.norm(p_pos - evader_positions[0]) for p_pos in pursuer_positions]
         capture_occurred = min(dists_to_evader) < self._config.dist_cap
 
-        # 过程优势奖励
+        # 3. 过程优势奖励
         num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
-        future_rewards = {a: 0.0 for a in self.pursuer_ids}  # 为每个追击方存储过程优势奖励
+        future_rewards = {a: 0.0 for a in self.pursuer_ids}
         
         if num_future_steps > 0 and self.evader_ids[0] in self.states:
-            # 预测逃逸方轨迹
             temp_e_state = np.copy(self.states[self.evader_ids[0]])
             future_e_traj = []
             for step in range(num_future_steps):
                 current_sim_time = self._time + datetime.timedelta(seconds=step * self._config.dt)
-                _, temp_e_state = self._orbit_lib.orbit_hpop(
-                    current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in
-                )
+                _, temp_e_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in)
                 future_e_traj.append(temp_e_state[:3])
             
-            # 为每个追击方计算过程优势奖励
             for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
                     temp_p_state = np.copy(self.states[agent_id])
                     min_future_dist = float('inf')
-                    min_step = num_future_steps  # 记录达到最小距离的步数
+                    min_step = num_future_steps
                     
                     for step in range(num_future_steps):
                         current_sim_time = self._time + datetime.timedelta(seconds=step * self._config.dt)
-                        _, temp_p_state = self._orbit_lib.orbit_hpop(
-                            current_sim_time, temp_p_state, self._config.dt, self._config.hpop_in
-                        )
+                        _, temp_p_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_p_state, self._config.dt, self._config.hpop_in)
                         dist = np.linalg.norm(temp_p_state[:3] - future_e_traj[step])
                         if dist < min_future_dist:
                             min_future_dist = dist
                             min_step = step
                     
-                    # 计算过程优势奖励
                     if min_future_dist < self._config.dist_cap:
-                        # 奖励: 预测能抓捕。越早、越近，奖励越高
                         time_factor = (num_future_steps - min_step) / num_future_steps
                         dist_factor = (self._config.dist_cap - min_future_dist) / self._config.dist_cap
                         radv = self._config.reward_advantage_weight * time_factor * dist_factor
                     else:
-                        # 惩罚: 预测不能抓捕。越早、越远，惩罚越大
                         time_factor = (num_future_steps - min_step) / num_future_steps
                         miss_dist = min_future_dist - self._config.dist_cap
-                        dist_factor = 1 - np.exp(-2.3e-5 * miss_dist)  # 归一化距离惩罚因子
+                        dist_factor = 1 - np.exp(-2.3e-5 * miss_dist)
                         radv = -self._config.reward_advantage_weight * time_factor * dist_factor
                     
                     future_rewards[agent_id] = radv
 
-        # 分配奖励
+        # 4. 分配总奖励
         for i, agent_id in enumerate(self.pursuer_ids):
             if agent_id in self.agents:
-                # 缩小距离
-                normalized_dist = dists_to_evader[i] / self._config.arena_radius
-                # 个体距离惩罚（使用缩小距离和对应权重）
-                dist_reward = -self._config.reward_dist_weight * normalized_dist
-                
                 # 时间惩罚
                 time_penalty = -self._config.reward_time_weight
                 
                 # 燃料消耗
                 fuel_penalty = -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3)))
                 
-                # 过程优势奖励
-                radv = future_rewards.get(agent_id, 0.0)
-                
-                # 总奖励 = 距离惩罚 + 队形奖励 + 时间惩罚 + 燃料惩罚 + 过程优势奖励
-                rewards[agent_id] = dist_reward + formation_reward + time_penalty + fuel_penalty + radv
+                # 总奖励 = 距离奖励 + 队形奖励 + 时间惩罚 + 燃料惩罚 + 过程优势奖励
+                rewards[agent_id] = (dist_rewards.get(agent_id, 0.0) + 
+                                     formation_reward + 
+                                     time_penalty + 
+                                     fuel_penalty + 
+                                     future_rewards.get(agent_id, 0.0))
 
-        # 抓捕成功/失败的终端奖励
+        # 5. 抓捕成功/失败的终端奖励 (保持不变)
         if capture_occurred:
             for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
                     if dists_to_evader[i] < self._config.dist_cap:
-                        rewards[agent_id] += self._config.reward_capture  # 捕获者奖励
+                        rewards[agent_id] += self._config.capture_reward
                     else:
-                        rewards[agent_id] += self._config.reward_capture * 0.5  # 协助者奖励
-        
-        # 为逃逸方分配奖励（当前版本不计算）
-        # if evader_ids[0] in self.agents:
-        #     pursuer_total_reward = sum(rewards.get(pid, 0) for pid in pursuer_ids)
-        #     rewards[evader_ids[0]] = -pursuer_total_reward
+                        rewards[agent_id] += self._config.capture_reward * 0.5
 
         return rewards
 
@@ -257,7 +266,7 @@ class MPEEnv(PEEnv):
             else:
                 unit_vectors.append(vec / dist)
         
-        # 计算所有单位向量之和的模长。理想包围是各向量互相抵消，模长为0
+        # 计算所有单位向量之和的模长，理想包围是各向量互相抵消，模长为0
         sum_of_vectors = np.sum(unit_vectors, axis=0)
         formation_score = np.linalg.norm(sum_of_vectors)
         
@@ -387,8 +396,28 @@ class MPEEnv(PEEnv):
         self.terminations = {a: False for a in self.agents}
         self.truncations = {a: False for a in self.agents}
         
+        # 初始化渐进式奖励所需的状态
+        evader_pos = None
+        if self.evader_ids and self.evader_ids[0] in self.states:
+            evader_pos = self.states[self.evader_ids[0]][:3]
+
+        if evader_pos is not None:
+            for p_id in self.pursuer_ids:
+                if p_id in self.states:
+                    p_pos = self.states[p_id][:3]
+                    initial_dist = np.linalg.norm(p_pos - evader_pos)
+                    self.previous_dists[p_id] = initial_dist
+                    self.min_dists[p_id] = initial_dist
+                else:
+                    self.previous_dists[p_id] = float('inf')
+                    self.min_dists[p_id] = float('inf')
+        else:
+            self.previous_dists = {p_id: float('inf') for p_id in self.pursuer_ids}
+            self.min_dists = {p_id: float('inf') for p_id in self.pursuer_ids}
+
         # 在infos中添加统计信息
         for agent in self.agents:
+            if agent not in self.infos: self.infos[agent] = {}
             self.infos[agent]['episode_statistics'] = self.episode_statistics.copy()
         
         return observations, self.infos
