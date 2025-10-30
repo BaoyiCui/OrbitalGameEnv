@@ -242,10 +242,15 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
 
     global_step = 0
     num_updates = cfg.total_timesteps // (cfg.num_steps * cfg.num_envs)
-    episode_stats = deque(maxlen=cfg.curriculum_check_episodes)
+    
+    # 用于记录最近N个回合的统计数据
+    recent_episode_stats = deque(maxlen=cfg.curriculum_check_episodes) 
+    
+    # 用于记录当前回合的数据
+    current_episode_return = 0.0
+    current_episode_length = 0
 
     obs, infos = env.reset()
-    episode_lambert_reward = 0.0
     
     for update in range(1, num_updates + 1):
         start_time = time.time()
@@ -253,6 +258,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
         agent.eval()
         for step in range(cfg.num_steps):
             global_step += 1
+            current_episode_length += 1
             
             pursuer_obs_list = [torch.Tensor(obs[name]).to(cfg.device) for name in pursuer_ids]
             pursuer_obs_tensor = torch.stack(pursuer_obs_list)
@@ -268,10 +274,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
 
             next_obs, rewards, terminations, truncations, infos = env.step(actions_to_step)
             
-            pursuer_rewards = torch.tensor([rewards[name] for name in pursuer_ids]).to(cfg.device)
+            # 注意：这里我们累加的是所有追击者奖励的总和
+            pursuer_rewards_sum = sum(rewards.get(name, 0) for name in pursuer_ids)
+            current_episode_return += pursuer_rewards_sum
+
+            pursuer_rewards_tensor = torch.tensor([rewards[name] for name in pursuer_ids]).to(cfg.device)
             pursuer_dones = torch.tensor([terminations.get(name, False) or truncations.get(name, False) for name in pursuer_ids]).to(cfg.device)
             
-            buffer.add(pursuer_obs_tensor, central_obs_tensor, actions_tensor, log_prob, pursuer_rewards, pursuer_dones, values, infos, pursuer_ids)
+            buffer.add(pursuer_obs_tensor, central_obs_tensor, actions_tensor, log_prob, pursuer_rewards_tensor, pursuer_dones, values, infos, pursuer_ids)
             
             obs = next_obs
             
@@ -279,12 +289,16 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
                 final_info = next(iter(infos.values()), None)
                 if final_info:
                     stats = final_info.get('episode_statistics', {})
-                    if stats: episode_stats.append(stats)
-                    pursuer_total_reward = sum(rewards.get(name, 0) for name in pursuer_ids)
-                    print(f"G_Step:{global_step}, Ep_Done, Reason:{final_info.get('termination_reason', 'Unknown')}, Pursuer_Reward:{pursuer_total_reward:.2f}")
-                    writer.add_scalar("charts/episode_reward", pursuer_total_reward, global_step)
+                    if stats: recent_episode_stats.append(stats)
+                    
+                    print(f"G_Step:{global_step}, Ep_Done, Reason:{final_info.get('termination_reason', 'Unknown')}, Ep_Return:{current_episode_return:.2f}, Ep_Len:{current_episode_length}")
+                    writer.add_scalar("charts/episodic_return", current_episode_return, global_step)
+                    writer.add_scalar("charts/episodic_length", current_episode_length, global_step)
+
+                # Reset episode-specific trackers
                 obs, infos = env.reset()
-                episode_lambert_reward = 0.0
+                current_episode_return = 0.0
+                current_episode_length = 0
 
         with torch.no_grad():
             next_pursuer_obs = [torch.Tensor(obs[name]).to(cfg.device) for name in pursuer_ids if name in obs]
@@ -300,6 +314,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
         mini_batch_size = batch_size // cfg.num_mini_batches
         
         agent.train()
+        # 初始化用于记录整个 update 周期内的 loss
+        avg_v_loss, avg_pg_loss, avg_sl_loss, avg_entropy_loss = 0, 0, 0, 0
+        num_minibatches_processed = 0
+
         for epoch in range(cfg.update_epochs):
             for b_obs, b_central_obs, b_actions, b_logprobs, b_advantages, b_returns, b_sl_hist, b_sl_gt in buffer.get(batch_size, mini_batch_size):
                 _, new_logprob, entropy, new_value = agent.get_action_and_value(b_obs, b_central_obs, b_actions)
@@ -333,32 +351,60 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
                 nn.utils.clip_grad_norm_(agent.lstm.parameters(), 0.5)
                 lstm_optimizer.step()
 
-        sps = int(cfg.num_steps / (time.time() - start_time))
-        print(f"Update: {update}/{num_updates}, SPS: {sps}")
-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/sl_loss", sl_loss.item(), global_step)
-        writer.add_scalar("charts/SPS", sps, global_step)
+                # 累加 loss
+                avg_v_loss += v_loss.item()
+                avg_pg_loss += pg_loss.item()
+                avg_sl_loss += sl_loss.item()
+                avg_entropy_loss += entropy_loss.item()
+                num_minibatches_processed += 1
 
-        if update > 0 and update % (cfg.curriculum_check_episodes // (cfg.num_steps // 200)) == 0:
-            if not episode_stats: continue
-            total_eps = episode_stats[-1]['total_episodes'] - episode_stats[0]['total_episodes']
-            if total_eps > 0:
-                successes = episode_stats[-1]['success_count'] - episode_stats[0]['success_count']
-                current_success_rate = successes / total_eps
-                writer.add_scalar("curriculum/success_rate", current_success_rate, global_step)
-                if current_success_rate >= cfg.success_rate_threshold:
-                    changed = False
-                    if current_dist_cap > cfg.min_dist_cap:
-                        current_dist_cap -= cfg.dist_cap_decrement
-                        changed = True
-                    if current_p_init_dv > cfg.min_p_init_dv:
-                        current_p_init_dv -= cfg.p_init_dv_decrement
-                        changed = True
-                    if changed:
-                        env.set_difficulty_parameters(dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
-                        print(f"*** 课程学习: 成功率 {current_success_rate:.2f}, 提升难度 -> 新捕获距离:{current_dist_cap}m, 新燃料:{current_p_init_dv}m/s ***")
-                        episode_stats.clear()
+        # 计算 Explained Variance
+        y_pred, y_true = buffer.values.cpu().numpy(), buffer.returns.cpu().numpy()
+        var_y = np.var(y_true)
+        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+        sps = int(cfg.num_steps / (time.time() - start_time))
+        print(f"Update: {update}/{num_updates}, SPS: {sps}, Explained Variance: {explained_var:.2f}")
+        
+        # 记录平均 loss
+        writer.add_scalar("losses/value_loss", avg_v_loss / num_minibatches_processed, global_step)
+        writer.add_scalar("losses/policy_loss", avg_pg_loss / num_minibatches_processed, global_step)
+        writer.add_scalar("losses/entropy_loss", avg_entropy_loss / num_minibatches_processed, global_step)
+        writer.add_scalar("losses/sl_loss", avg_sl_loss / num_minibatches_processed, global_step)
+        writer.add_scalar("charts/SPS", sps, global_step)
+        writer.add_scalar("info/explained_variance", explained_var, global_step)
+
+        # 课程学习与统计日志
+        if len(recent_episode_stats) >= 2:
+            # 确保我们有足够的数据来进行有意义的统计
+            # 这里可以根据需要调整检查的最小 episode 数量
+            if update > 10 and len(recent_episode_stats) > 10:
+                total_eps = recent_episode_stats[-1]['total_episodes'] - recent_episode_stats[0]['total_episodes']
+                if total_eps > 0:
+                    successes = recent_episode_stats[-1]['success_count'] - recent_episode_stats[0]['success_count']
+                    timeouts = recent_episode_stats[-1]['timeout_count'] - recent_episode_stats[0]['timeout_count']
+                    fuelouts = recent_episode_stats[-1]['fuelout_count'] - recent_episode_stats[0]['fuelout_count']
+                    
+                    current_success_rate = successes / total_eps
+                    current_timeout_rate = timeouts / total_eps
+                    current_fuelout_rate = fuelouts / total_eps
+
+                    writer.add_scalar("charts/success_rate", current_success_rate, global_step)
+                    writer.add_scalar("charts/timeout_rate", current_timeout_rate, global_step)
+                    writer.add_scalar("charts/fuelout_rate", current_fuelout_rate, global_step)
+
+                    if current_success_rate >= cfg.success_rate_threshold:
+                        changed = False
+                        if current_dist_cap > cfg.min_dist_cap:
+                            current_dist_cap -= cfg.dist_cap_decrement
+                            changed = True
+                        if current_p_init_dv > cfg.min_p_init_dv:
+                            current_p_init_dv -= cfg.p_init_dv_decrement
+                            changed = True
+                        if changed:
+                            env.set_difficulty_parameters(dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
+                            print(f"*** 课程学习: 成功率 {current_success_rate:.2f}, 提升难度 -> 新捕获距离:{current_dist_cap}m, 新燃料:{current_p_init_dv}m/s ***")
+                            recent_episode_stats.clear()
 
     env.close()
     writer.close()

@@ -26,13 +26,13 @@ class MPEEnvCfg(PEEnvCfg):
     # Reward settings
     capture_reward: float = 20.0
     reward_timeout_penalty: float = -2.0  # 超时失败的惩罚
-    reward_fuelout_penalty: float = -2.0  # 燃料耗尽的惩罚
+    reward_fuelout_penalty: float = -1.0  # 燃料耗尽的惩罚
     fuel_penalty_weight: float = 0.1
 
     # 过程优势奖励参数
     reward_advantage_weight: float = 0.5  # 过程优势奖励的权重
     advantage_reward_horizon: float = 3600*5  # 优势奖励的预测时间窗口（单位秒）
-    arena_radius: float = 100e+3  # 参考距离（单位：米），用于距离缩小
+    arena_radius: float = 10e+3  # 参考距离（单位：米），用于距离缩小
 
 class MPEEnv(PEEnv):
     """
@@ -168,7 +168,7 @@ class MPEEnv(PEEnv):
                 dist_change_reward = self._config.reward_dist_weight * (prev_dist - current_dist) / self._config.arena_radius
 
                 # 达到更小距离时给予额外奖励
-                min_dist_bonus = 0.4
+                min_dist_bonus = 0.0
                 if current_dist < min_dist:
                     min_dist_bonus = self._config.reward_dist_weight * (min_dist - current_dist) / self._config.arena_radius
                     self.min_dists[agent_id] = current_dist
