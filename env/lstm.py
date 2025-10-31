@@ -46,38 +46,53 @@ class TrajectoryPredictor(nn.Module):
 
     def forward(self, historical_data_abs: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
         """
-        前向传播（绝对 -> 相对）。
+        前向传播（方案1：输入相对于序列的最后一个点进行归一化）。
 
         Args:
-            historical_data_abs (torch.Tensor): 历史轨迹数据（依然是绝对位置和速度）。
-                                                 形状: (batch_size, sequence_length, 6)
+            historical_data_abs (torch.Tensor): 历史轨迹数据（绝对位置和速度）。
+                                             形状: (batch_size, sequence_length, 6)
             mask (torch.Tensor, optional): 一个布尔或0/1的掩码，标记有效的时间步。
-                                            形状: (batch_size, sequence_length)
+                                        形状: (batch_size, sequence_length)
 
         Returns:
             torch.Tensor: 预测出的未来10步轨迹的**相对位移**（已展平）。
                           形状: (batch_size, 30)
         """
-        # 输入数据仍为绝对坐标，但模型的学习目标是相对位移
         lstm_input = historical_data_abs
-
+        batch_size = historical_data_abs.shape[0]
+        
         if mask is not None and mask.dim() == 1:
             mask = mask.unsqueeze(0)
 
         if mask is not None and mask.any():
-            lengths = torch.clamp(mask.sum(dim=1).cpu(), min=1)
+            lengths = torch.clamp(mask.sum(dim=1).cpu(), min=1).long()
+            last_seq_idxs = lengths - 1
+            # 获取每个批次项的最后一个有效状态
+            last_states = historical_data_abs[torch.arange(batch_size), last_seq_idxs] # (batch_size, 6)
+            last_pos = last_states[:, :3].unsqueeze(1) # (batch_size, 1, 3)
+            
+            # 创建相对于最后一个点的输入
+            relative_pos = historical_data_abs[:, :, :3] - last_pos
+            # 保持速度为绝对值
+            velocities = historical_data_abs[:, :, 3:]
+            lstm_input = torch.cat([relative_pos, velocities], dim=-1)
+
             packed_input = pack_padded_sequence(lstm_input, lengths, batch_first=True, enforce_sorted=False)
             packed_output, _ = self.lstm(packed_input)
             lstm_out, _ = pad_packed_sequence(packed_output, batch_first=True, total_length=historical_data_abs.shape[1])
             
-            batch_size = lstm_out.shape[0]
-            last_seq_idxs = (lengths - 1).long()
             last_timestep_output = lstm_out[torch.arange(batch_size), last_seq_idxs]
         else:
+            # 无掩码的简化路径
+            last_pos = historical_data_abs[:, -1:, :3] # (batch_size, 1, 3)
+            relative_pos = historical_data_abs[:, :, :3] - last_pos
+            velocities = historical_data_abs[:, :, 3:]
+            lstm_input = torch.cat([relative_pos, velocities], dim=-1)
+            
             lstm_out, _ = self.lstm(lstm_input)
             last_timestep_output = lstm_out[:, -1, :]
             
-        # 全连接层预测出未来的相对位移轨迹
+        # 全连接层预测未来的相对位移轨迹
         predicted_trajectory_relative = self.fc(last_timestep_output)
         
         return predicted_trajectory_relative

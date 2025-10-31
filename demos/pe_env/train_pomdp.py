@@ -14,7 +14,6 @@ import time
 import random
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
-from env.lstm import TrajectoryPredictor
 from env.encoder import AttentionBasedEncoder
 
 # --- 1. 超参数配置 ---
@@ -104,12 +103,23 @@ class ActorCritic(nn.Module):
         self.actor_logstd = nn.Parameter(torch.zeros(1, act_dim))
         
         # --- 轨迹预测网络 ---
-        self.lstm = TrajectoryPredictor(
-            input_dim=6, 
-            hidden_dim=128, 
-            output_dim=env_cfg.lstm_future_len * 3, 
-            num_layers=2
-        )
+        if env_cfg.lstm_scheme == 1:
+            from env.lstm import TrajectoryPredictor
+            self.lstm = TrajectoryPredictor(
+                input_dim=6, 
+                hidden_dim=128, 
+                output_dim=env_cfg.lstm_future_len * 3, 
+                num_layers=2
+            )
+        elif env_cfg.lstm_scheme in [2, 3]:
+            from env.lstm_relative import RelativeTrajectoryPredictor
+            self.lstm = RelativeTrajectoryPredictor(
+                scheme=env_cfg.lstm_scheme,
+                input_dim=6, 
+                hidden_dim=128, 
+                output_dim=env_cfg.lstm_future_len * 3, 
+                num_layers=2
+            )
 
     def get_value(self, central_obs):
         return self.critic_net(central_obs)

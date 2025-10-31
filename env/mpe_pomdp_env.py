@@ -26,6 +26,7 @@ class MPE_POMDP_EnvCfg(MPEEnvCfg):
     obs_interval: int = 2
     lstm_history_len: int = 20
     lstm_future_len: int = 10
+    lstm_scheme: int = 1  # 1:rel-to-last, 2:rel-to-virtual-star, 3:rel-to-first
 
     # Lambert奖励配置 
     use_lambert_reward: bool = True
@@ -53,6 +54,11 @@ class MPE_POMDP_Env(MPEEnv):
             self.evader_history_buffers = {f'e_{i}': deque(maxlen=self._config.lstm_history_len) for i in range(self._config.num_e)}
             self.pursuer_predictions = {f'e_{i}': torch.zeros(self._config.lstm_future_len * 3) for i in range(self._config.num_e)}
             self.obs_counters = {f'e_{i}': 0 for i in range(self._config.num_e)}
+
+            # 为方案2初始化特定状态
+            if self._config.lstm_scheme == 2:
+                self.virtual_star_states = {f'e_{i}': np.zeros(6) for i in range(self._config.num_e)}
+                self.virtual_star_history_buffers = {f'e_{i}': deque(maxlen=self._config.lstm_history_len) for i in range(self._config.num_e)}
 
             # 重新定义观测空间以适应LSTM的输出
             self.observation_spaces = {}
@@ -87,14 +93,22 @@ class MPE_POMDP_Env(MPEEnv):
         if self._config.use_partial_obs:
             self.obs_counters = {f'e_{i}': 0 for i in range(self._config.num_e)}
             self.pursuer_predictions = {f'e_{i}': torch.zeros(self._config.lstm_future_len * 3, device=self.device) for i in range(self._config.num_e)}
+            
             for evader_id in [f'e_{i}' for i in range(self._config.num_e)]:
                 self.evader_history_buffers[evader_id].clear()
                 if evader_id in self.states:
-                    # 初始化时就使用归一化状态
                     initial_state_normalized = self.normalize_state(self.states[evader_id])
                     for _ in range(self._config.lstm_history_len):
                         self.evader_history_buffers[evader_id].append(initial_state_normalized)
-            
+                    
+                    # 为方案2重置虚拟星状态和历史
+                    if self._config.lstm_scheme == 2:
+                        self.virtual_star_states[evader_id] = np.copy(self.states[evader_id])
+                        self.virtual_star_history_buffers[evader_id].clear()
+                        vs_initial_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                        for _ in range(self._config.lstm_history_len):
+                            self.virtual_star_history_buffers[evader_id].append(vs_initial_state_normalized)
+
             self._update_predictions_and_prepare_sl_data()
             observations = self._get_observations()
 
@@ -120,6 +134,15 @@ class MPE_POMDP_Env(MPEEnv):
             _, new_state = self._orbit_lib.orbit_hpop(self._time, self.states[a], self._config.dt, self._config.hpop_in)
             self.states[a] = new_state
         self._time = self._time + datetime.timedelta(seconds=self._config.dt)
+
+        # 为方案2传播虚拟星
+        if self._config.use_partial_obs and self._config.lstm_scheme == 2:
+            for evader_id in [f'e_{i}' for i in range(self._config.num_e)]:
+                if evader_id in self.virtual_star_states:
+                    # 虚拟星从回合开始时的状态独立传播，不受动作影响
+                    vs_time = self._time - datetime.timedelta(seconds=self._config.dt)
+                    _, new_vs_state = self._orbit_lib.orbit_hpop(vs_time, self.virtual_star_states[evader_id], self._config.dt, self._config.hpop_in)
+                    self.virtual_star_states[evader_id] = new_vs_state
 
         observations = self._get_observations()
         rewards = self._get_rewards(actions)
@@ -236,25 +259,39 @@ class MPE_POMDP_Env(MPEEnv):
             if self.obs_counters[evader_id] % self._config.obs_interval == 0:
                 true_state_normalized = self.normalize_state(self.states[evader_id])
                 history_buffer.append(true_state_normalized)
+                if self._config.lstm_scheme == 2:
+                    vs_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                    self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
             else:
                 # 伪观测的逻辑也基于归一化数据
                 if len(history_buffer) > 0:
-                    # LSTM的输出是归一化的相对位移
                     norm_rel_disp = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)[0].cpu().numpy()
-                    # 上一步的归一化状态
                     prev_norm_state = history_buffer[-1]
-                    # 预测的下一步归一化绝对位置
                     next_norm_pos = prev_norm_state[:3] + norm_rel_disp
-                    # 估算归一化速度
-                    estimated_norm_vel = (next_norm_pos - prev_norm_state[:3]) / (self._config.dt / self.velocity_scale * self.position_scale) # A simplified estimation
+                    estimated_norm_vel = (next_norm_pos - prev_norm_state[:3]) / (self._config.dt / self.velocity_scale * self.position_scale)
                     pseudo_state_normalized = np.concatenate([next_norm_pos, estimated_norm_vel])
                     history_buffer.append(pseudo_state_normalized)
+                    if self._config.lstm_scheme == 2:
+                        if len(self.virtual_star_history_buffers[evader_id]) > 0:
+                            self.virtual_star_history_buffers[evader_id].append(self.virtual_star_history_buffers[evader_id][-1])
+                        else:
+                            vs_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                            self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
                 else: 
                      history_buffer.append(self.normalize_state(self.states[evader_id]))
 
             if len(history_buffer) > 0:
-                input_seq = torch.tensor(np.array(list(history_buffer)), dtype=torch.float32).unsqueeze(0).to(self.device)
+                history_abs_normalized = np.array(list(history_buffer))
+                input_data_for_lstm = history_abs_normalized
+
+                if self._config.lstm_scheme == 2:
+                    vs_history_normalized = np.array(list(self.virtual_star_history_buffers[evader_id]))
+                    if len(vs_history_normalized) == len(history_abs_normalized):
+                        input_data_for_lstm = history_abs_normalized - vs_history_normalized
+                
+                input_seq = torch.tensor(input_data_for_lstm, dtype=torch.float32).unsqueeze(0).to(self.device)
                 mask = torch.ones(1, len(history_buffer)).to(self.device)
+                
                 with torch.no_grad():
                     new_prediction = self.lstm_model(input_seq, mask=mask).squeeze(0)
                 self.pursuer_predictions[evader_id] = new_prediction
@@ -266,12 +303,18 @@ class MPE_POMDP_Env(MPEEnv):
             for step in range(self._config.lstm_future_len):
                 current_sim_time = self._time + datetime.timedelta(seconds=(step + 1) * self._config.dt)
                 _, temp_e_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in)
-                # 计算相对位移并归一化
                 relative_displacement_normalized = (temp_e_state[:3] - current_e_pos) / self.position_scale
                 future_gt_traj_normalized.append(relative_displacement_normalized)
             
+            # 准备用于存储在buffer中的监督学习数据
+            sl_history_input = np.array(list(history_buffer))
+            if self._config.lstm_scheme == 2:
+                # 对于方案2，回放缓冲区也需要存储相对历史
+                if len(vs_history_normalized) == len(history_abs_normalized):
+                    sl_history_input = history_abs_normalized - vs_history_normalized
+
             sl_data = {
-                f'sl_history_input_{evader_id}': np.array(list(history_buffer)),
+                f'sl_history_input_{evader_id}': sl_history_input,
                 f'sl_future_ground_truth_{evader_id}': np.array(future_gt_traj_normalized)
             }
             for p_agent_id in [f'p_{i}' for i in range(self._config.num_p)]:

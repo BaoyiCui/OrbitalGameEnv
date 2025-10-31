@@ -59,6 +59,7 @@ def main():
     model_parser.add_argument("--use_encoder", type=lambda x: (str(x).lower() == 'true'), default=TrainConfig.use_encoder, help="是否在Actor网络中使用Attention Encoder")
     model_parser.add_argument("--lstm_history_len", type=int, default=MPE_POMDP_EnvCfg.lstm_history_len, help="LSTM输入序列的历史长度")
     model_parser.add_argument("--lstm_future_len", type=int, default=MPE_POMDP_EnvCfg.lstm_future_len, help="LSTM需要预测的未来轨迹长度")
+    model_parser.add_argument("--lstm_scheme", type=int, default=1, choices=[1, 2, 3], help="LSTM预测方案 (1: rel-to-last, 2: rel-to-virtual-star, 3: rel-to-first)")
 
     # --- 奖励权重配置 ---
     reward_parser.add_argument("--lambert_reward_weight", type=float, default=NEW_REWARD_DEFAULTS.get('lambert_reward_weight', MPE_POMDP_EnvCfg.lambert_reward_weight), help="引导奖励：Lambert引导奖励的权重")
@@ -114,6 +115,7 @@ def main():
     env_cfg.lstm_history_len = args.lstm_history_len
     env_cfg.lstm_future_len = args.lstm_future_len
     env_cfg.use_lambert_reward = args.use_lambert_reward
+    env_cfg.lstm_scheme = args.lstm_scheme
     
     # 填充奖励参数
     env_cfg.lambert_reward_weight = args.lambert_reward_weight
