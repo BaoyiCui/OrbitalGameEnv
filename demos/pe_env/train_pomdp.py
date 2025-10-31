@@ -45,7 +45,7 @@ class TrainConfig:
     curriculum_check_episodes: int = 50
     success_rate_threshold: float = 0.7
     initial_dist_cap: float = 60e3
-    initial_p_init_dv: float = 50000.0
+    initial_p_init_dv: float = 200.0
     dist_cap_decrement: float = 1e3
     p_init_dv_decrement: float = 100.0
     min_dist_cap: float = 30e3
@@ -234,7 +234,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
 
     optimizer = torch.optim.Adam(ac_params, lr=cfg.lr, eps=1e-5)
     lstm_optimizer = torch.optim.Adam(agent.lstm.parameters(), lr=cfg.sl_lr, eps=1e-5)
-    sl_loss_fn = nn.MSELoss()
+    sl_loss_fn = nn.SmoothL1Loss()
 
     env.set_policy_lstm(agent.lstm)
 
@@ -257,6 +257,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
         
         agent.eval()
         for step in range(cfg.num_steps):
+
             global_step += 1
             current_episode_length += 1
             
@@ -274,6 +275,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
 
             next_obs, rewards, terminations, truncations, infos = env.step(actions_to_step)
             
+
             # 注意：这里我们累加的是所有追击者奖励的总和
             pursuer_rewards_sum = sum(rewards.get(name, 0) for name in pursuer_ids)
             current_episode_return += pursuer_rewards_sum

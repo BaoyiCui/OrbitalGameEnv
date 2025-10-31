@@ -60,7 +60,7 @@ class PEEnvCfg:
         Sr=1.0,
         Cd=2.2,
         eta=1.0,
-        Propagator_Type=10,  # 二体动力学
+        Propagator_Type=0,  # 二体动力学
         Dyn_Type=0  # 无效，J2摄动
     )
 
@@ -361,7 +361,10 @@ class PEEnv(ParallelEnv):
             if dist < self._config.dist_cap:
                 terminations = {a: True for a in self.agents}
         
-        if any(dv <= 0 for dv in self.remain_Dvs.values()):
+        #if any(dv <= 0 for dv in self.remain_Dvs.values()):
+            #terminations = {a: True for a in self.agents}
+
+        if self.remain_Dvs['p_0']<= 0:
             terminations = {a: True for a in self.agents}
 
         return terminations

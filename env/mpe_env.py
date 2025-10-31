@@ -296,10 +296,17 @@ class MPEEnv(PEEnv):
                 return terminations, termination_reasons
 
         # 2. 检查燃料耗尽（失败）
-        if any(dv <= 0 for dv in self.remain_Dvs.values()):
+        # if any(dv <= 0 for dv in self.remain_Dvs.values()):
+        #     terminations = {a: True for a in self.agents}
+        #     termination_reasons = {a: 'fuel_out' for a in self.agents}
+        #     return terminations, termination_reasons
+        # if any(dv <= 0 for dv in self.remain_Dvs.values()):
+        for a in self.agents:
+          if ('p' in a) and self.remain_Dvs[a] <=0: 
             terminations = {a: True for a in self.agents}
             termination_reasons = {a: 'fuel_out' for a in self.agents}
             return terminations, termination_reasons
+
 
         # 3. 检查超时（失败）
         if self._time >= self._config.init_utc + datetime.timedelta(seconds=self._config.episode_length):

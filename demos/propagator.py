@@ -2,8 +2,9 @@ import datetime
 
 import numpy as np
 
-from env import orbitx
-from env.OrbitLib import OrbitLib, HPOP_In
+# from env import orbitx
+import orbitx
+from OrbitLib import OrbitLib, HPOP_In
 
 
 def main():
@@ -16,9 +17,15 @@ def main():
     ta = 0
 
     # orbit_lib = OrbitLib(r"D:\Workspaces\OrbitalGameEnv\env\OrbitLib\dll\release\OrbitHPOP.dll") # windows加载此dll
-    orbit_lib = OrbitLib("/home/baoyicui/Workspaces/OrbitalGameEnv/env/OrbitLib/so/X86/libOrbit.so")
+    orbit_lib = OrbitLib("/home/star/Downloads/gemini-cli-main/OrbitalGameEnv/demos/OrbitLib/so/X86/libOrbit.so")
 
     rv = orbitx.coe2rv(np.array([sma, ecc, inc, raan, argp, ta]))
+    
+    rv = np.array([
+        -2.01874608e+07, -3.67876405e+07, -8.71004734e+04,
+        1.41978976e+03, 1.25698370e+03, -3.51692653e+02
+    ])
+    
     # HPOP初始化参数
     # hpopin = HPOP_In(  # HPOP 初始化参数，全局变量
     #     inial=True,
@@ -43,7 +50,7 @@ def main():
         Sr=1.0,
         Cd=2.2,
         eta=1.0,
-        Propagator_Type=10,  # 二体动力学
+        Propagator_Type=0,  # 二体动力学
         Dyn_Type=0  # 无效，J2摄动
     )
 
