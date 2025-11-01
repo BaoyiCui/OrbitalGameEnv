@@ -73,7 +73,6 @@ class PEEnvCfg:
     max_history = 60
 
     def check_params(self):
-        # 修改：允许多个追击方和逃跑方
         assert self.num_p >= 1
         assert self.num_e >= 1
         assert self.p_dv_step > 0.0
@@ -122,7 +121,7 @@ class PEEnv(ParallelEnv):
 
         self.states = {a: np.zeros(6, ) for a in self.agents}
         self.remain_Dvs = {a: 0.0 for a in self.agents}
-        self.last_dist = 0.0 # 用于计算奖励塑形
+        self.last_dist = 0.0 
 
         # 渲染器将在第一次调用render()时被初始化
         self.viewer = None
@@ -222,7 +221,6 @@ class PEEnv(ParallelEnv):
         infos = {a: {} for a in self.agents}
         for agent in list(self.agents):
             if terminations.get(agent, False) or truncations.get(agent, False):
-                # For SB3, it's important to have the final observation in the info dict
                 infos[agent]['final_observation'] = observations[agent]
                 self.agents.remove(agent)
 
@@ -258,9 +256,9 @@ class PEEnv(ParallelEnv):
             if evader_id in self.states:
                 evader_positions.append(self.states[evader_id][:3])
         
-        for agent_id in self.possible_agents: # Observe for all possible agents
+        for agent_id in self.possible_agents: 
             if agent_id not in self.states:
-                continue # Skip if state is not available
+                continue 
 
             if agent_id.startswith('p_'):
                 obs = np.concatenate([

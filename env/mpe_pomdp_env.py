@@ -36,19 +36,19 @@ class MPE_POMDP_EnvCfg(MPEEnvCfg):
 
 class MPE_POMDP_Env(MPEEnv):
     """
-    继承自MPEEnv，通过覆盖和添加方法来实现部分可观测性功能。
+    继承自MPEEnv
     """
     def __init__(self, config: MPE_POMDP_EnvCfg = MPE_POMDP_EnvCfg()):
-        # 首先调用父类的构造函数，完成大部分初始化
+        # 首先调用父类的构造函数
         super().__init__(config)
         self._config: MPE_POMDP_EnvCfg = config
 
         # 添加归一化参数
-        self.position_scale = 1e7  # 10000 km, a common scale for orbital mechanics
+        self.position_scale = 1e7  # 10000 km, 
         self.velocity_scale = 1e4  # 10 km/s
 
         self.lstm_model = None
-        self.device = None # 新增设备属性
+        self.device = None 
         if self._config.use_partial_obs:
             # 初始化POMDP相关的状态变量
             self.evader_history_buffers = {f'e_{i}': deque(maxlen=self._config.lstm_history_len) for i in range(self._config.num_e)}
@@ -118,7 +118,7 @@ class MPE_POMDP_Env(MPEEnv):
         if self._config.use_partial_obs:
             self._update_predictions_and_prepare_sl_data()
         
-        # 动作应用和状态传播 (这部分逻辑保持不变)
+        # 动作应用和状态传播
         for a in self.agents:
             if a.startswith('p_'): dv_step = self._config.p_dv_step
             else: dv_step = self._config.e_dv_step
@@ -183,7 +183,6 @@ class MPE_POMDP_Env(MPEEnv):
         return observations, rewards, self.terminations, self.truncations, current_infos
 
     def _get_rewards(self, actions):
-        # 这部分逻辑保持不变，奖励计算不依赖于归一化
         return super()._get_rewards(actions)
 
     def _get_observations(self):
