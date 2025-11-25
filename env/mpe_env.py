@@ -18,20 +18,20 @@ class MPEEnvCfg(PEEnvCfg):
     num_e: int = 1
     
     # --- 覆盖多智能体逻辑的奖励权重 ---
-    reward_dist_weight: float = 0.05  # 距离权重
-    reward_time_weight: float = 0.05  # 时间惩罚权重
+    reward_dist_weight: float = 0.002  # 距离权重
+    reward_time_weight: float = 0.01  # 时间惩罚权重
     reward_formation_weight: float = 0.04  # 群体形成奖励权重
-    reward_fuel_weight: float = 4  # 燃料消耗惩罚权重
+    reward_fuel_weight: float = 0.05  # 燃料消耗惩罚权重
     # 稀疏奖励
     # Reward settings
-    capture_reward: float = 20.0
+    capture_reward: float = 10.0
     reward_timeout_penalty: float = -2.0  # 超时失败的惩罚
     reward_fuelout_penalty: float = -1.0  # 燃料耗尽的惩罚
     fuel_penalty_weight: float = 0.1
 
     # 过程优势奖励参数
-    reward_advantage_weight: float = 0.5  # 过程优势奖励的权重
-    advantage_reward_horizon: float = 3600*5  # 优势奖励的预测时间窗口（单位秒）
+    reward_advantage_weight: float = 0.05  # 过程优势奖励的权重
+    advantage_reward_horizon: float = 3600*2  # 优势奖励的预测时间窗口（单位秒）
     arena_radius: float = 10e+3  # 参考距离（单位：米），用于距离缩小
 
 class MPEEnv(PEEnv):
@@ -138,6 +138,7 @@ class MPEEnv(PEEnv):
 
     def _get_rewards(self, actions: Dict[str, np.ndarray]):
         rewards = {a: 0.0 for a in self.agents}
+        debug_reward_info = {agent_id: {} for agent_id in self.pursuer_ids if agent_id in self.agents}
         
         # 收集位置信息
         pursuer_positions = []
@@ -151,7 +152,7 @@ class MPEEnv(PEEnv):
                 evader_positions.append(self.states[eid][:3])
         
         if not evader_positions or not pursuer_positions:
-            return rewards
+            return rewards, debug_reward_info
 
         # 计算到逃逸方的距离
         dists_to_evader = [np.linalg.norm(p_pos - evader_positions[0]) for p_pos in pursuer_positions]
@@ -227,29 +228,50 @@ class MPEEnv(PEEnv):
         # 4. 分配总奖励
         for i, agent_id in enumerate(self.pursuer_ids):
             if agent_id in self.agents:
-                # 时间惩罚
-                time_penalty = -self._config.reward_time_weight
-                
-                # 燃料消耗
-                fuel_penalty = -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3)))
-                
-                # 总奖励 = 距离奖励 + 队形奖励 + 时间惩罚 + 燃料惩罚 + 过程优势奖励
-                rewards[agent_id] = (dist_rewards.get(agent_id, 0.0) + 
-                                     formation_reward + 
-                                     time_penalty + 
-                                     fuel_penalty + 
-                                     future_rewards.get(agent_id, 0.0))
+                # 各项奖励分量
+                r_dist = dist_rewards.get(agent_id, 0.0)
+                r_formation = formation_reward
+                r_time = -self._config.reward_time_weight
+                r_fuel = -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3)))
+                r_adv = future_rewards.get(agent_id, 0.0)
 
-        # 5. 抓捕成功/失败的终端奖励 (保持不变)
+                # 总奖励
+                rewards[agent_id] = r_dist + r_formation + r_time + r_fuel + r_adv
+                
+                if self._config.debug_rewards:
+                    debug_reward_info[agent_id].update({
+                        "r_dist": r_dist,
+                        "r_formation": r_formation,
+                        "r_time": r_time,
+                        "r_fuel": r_fuel,
+                        "r_adv": r_adv,
+                        "total_pre_terminal": rewards[agent_id]
+                    })
+
+        # 5. 抓捕成功/失败的终端奖励
         if capture_occurred:
             for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
+                    capture_bonus = 0.0
                     if dists_to_evader[i] < self._config.dist_cap:
-                        rewards[agent_id] += self._config.capture_reward
+                        capture_bonus = self._config.capture_reward
                     else:
-                        rewards[agent_id] += self._config.capture_reward * 0.5
+                        capture_bonus = self._config.capture_reward * 0.5
+                    
+                    rewards[agent_id] += capture_bonus
+                    if self._config.debug_rewards:
+                        debug_reward_info[agent_id]['r_capture'] = capture_bonus
+                        debug_reward_info[agent_id]['final_total'] = rewards[agent_id]
 
-        return rewards
+        if self._config.debug_rewards and any(debug_reward_info.values()):
+            print(f"\n--- Step @ {self._time} Reward Debug ---")
+            for agent_id, reward_data in debug_reward_info.items():
+                if reward_data:
+                    reward_str = ", ".join([f"{k}: {v:.4f}" for k, v in reward_data.items()])
+                    print(f"  Agent {agent_id}: {reward_str}")
+            print("------------------------------------")
+
+        return rewards, debug_reward_info
 
     def _calculate_formation_score(self, pursuer_positions, evader_pos):
         """计算形成得分，鼓励良好的包围阵型。返回值越小越好。"""
@@ -351,7 +373,7 @@ class MPEEnv(PEEnv):
         self._time = self._time + datetime.timedelta(seconds=self._config.dt)
 
         observations = self._get_observations()
-        rewards = self._get_rewards(actions)
+        rewards, debug_reward_info = self._get_rewards(actions)
         
         # 获取终止原因
         terminations, termination_reasons = self._get_terminations()
@@ -386,10 +408,12 @@ class MPEEnv(PEEnv):
             )
 
         self.infos = {a: {} for a in self.agents}
-        # 将终止原因添加到info中
-        for agent in self.agents:
-            self.infos[agent]['termination_reason'] = termination_reasons.get(agent, None)
-            self.infos[agent]['episode_statistics'] = self.episode_statistics.copy()
+        # 将终止原因和奖励分量添加到info中
+        for agent_id in self.agents:
+            self.infos[agent_id]['termination_reason'] = termination_reasons.get(agent_id, None)
+            self.infos[agent_id]['episode_statistics'] = self.episode_statistics.copy()
+            if self._config.debug_rewards and agent_id in debug_reward_info:
+                self.infos[agent_id]['reward_components'] = debug_reward_info[agent_id]
 
         for agent in list(self.agents):
             if terminations.get(agent, False) or truncations.get(agent, False):

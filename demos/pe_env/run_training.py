@@ -1,4 +1,3 @@
-
 import argparse
 import torch
 import sys
@@ -23,21 +22,21 @@ from demos.pe_env.train_pomdp import train, TrainConfig
 NEW_REWARD_DEFAULTS = {
     # --- 奖励 ---
     "lambert_reward_weight": 0.5,
-    "reward_dist_weight": 0.5,
-    "reward_time_weight": 0.01,
-    "reward_formation_weight": 0.5,
-    "reward_fuel_weight": 0.1,
-    "reward_advantage_weight": 0.5,
-    "capture_reward": 50.0,
-    "reward_timeout_penalty": -5,
-    "reward_fuelout_penalty": -5,
+    "reward_dist_weight": 0.8,
+    "reward_time_weight": 0.002,
+    "reward_formation_weight": 0.02,
+    "reward_fuel_weight": 0.01,
+    "reward_advantage_weight": 0.05,
+    "capture_reward": 10.0,
+    "reward_timeout_penalty": -2,
+    "reward_fuelout_penalty": -3,
 }
 
 def main():
     """
     主函数，用于解析命令行参数并启动训练。
     """
-    parser = argparse.ArgumentParser(description="启动 PPO 训练，并允许通过命令行调整超参数。")
+    parser = argparse.ArgumentParser(description="启动 PPO 训练，可以通过命令行调整超参数")
 
     # --- 创建参数组 ---
     env_parser = parser.add_argument_group("环境与观测配置 (Environment & Observation)")
@@ -83,6 +82,9 @@ def main():
     algo_parser.add_argument("--ent_coef", type=float, default=TrainConfig.ent_coef, help="熵损失的系数")
     algo_parser.add_argument("--vf_coef", type=float, default=TrainConfig.vf_coef, help="值函数损失的系数")
     algo_parser.add_argument("--sl_coef", type=float, default=TrainConfig.sl_coef, help="监督学习损失的权重")
+    algo_parser.add_argument("--anneal_ent", type=lambda x: (str(x).lower() == 'true'), default=TrainConfig.anneal_ent, help="是否对熵系数进行退火")
+    algo_parser.add_argument("--ent_anneal_start_frac", type=float, default=TrainConfig.ent_anneal_start_frac, help="熵系数退火起始点 (占总训练步数的百分比)")
+    algo_parser.add_argument("--final_ent_coef", type=float, default=TrainConfig.final_ent_coef, help="熵系数退火的最终目标值")
     
     # --- 训练过程超参数 ---
     train_parser.add_argument("--total_timesteps", type=int, default=TrainConfig.total_timesteps, help="总训练步数")
@@ -105,6 +107,9 @@ def main():
     misc_parser.add_argument("--seed", type=int, default=TrainConfig.seed, help="随机种子")
     misc_parser.add_argument("--device", type=str, default=TrainConfig.device, help="计算设备 (cuda or cpu)")
     misc_parser.add_argument("--run_name", type=str, default=None, help="实验名称，用于TensorBoard，默认为自动生成。")
+    misc_parser.add_argument("--debug_rewards", type=lambda x: (str(x).lower() == 'true'), default=False, help="是否打印每一步详细的奖励构成")
+    misc_parser.add_argument("--debug_critic", type=lambda x: (str(x).lower() == 'true'), default=False, help="是否打印Critic诊断信息")
+    misc_parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="从指定的检查点文件路径恢复训练")
 
     args = parser.parse_args()
 
@@ -141,6 +146,9 @@ def main():
     train_cfg.ent_coef = args.ent_coef
     train_cfg.vf_coef = args.vf_coef
     train_cfg.sl_coef = args.sl_coef
+    train_cfg.anneal_ent = args.anneal_ent
+    train_cfg.ent_anneal_start_frac = args.ent_anneal_start_frac
+    train_cfg.final_ent_coef = args.final_ent_coef
     train_cfg.lr = args.lr
     train_cfg.sl_lr = args.sl_lr
     train_cfg.num_mini_batches = args.num_mini_batches
@@ -159,10 +167,28 @@ def main():
     train_cfg.min_p_init_dv = args.min_p_init_dv
     train_cfg.seed = args.seed
     train_cfg.device = args.device
+    train_cfg.debug_critic = args.debug_critic
+    train_cfg.resume_from_checkpoint = args.resume_from_checkpoint
     if args.run_name:
         train_cfg.run_name = args.run_name
+    
+    env_cfg.debug_rewards = args.debug_rewards
 
     # --- 3. 启动训练 ---
+    if args.debug_rewards:
+        print("\n" + "-" * 30)
+        print("--- Initial Reward Weights ---")
+        print(f"  lambert_reward_weight: {env_cfg.lambert_reward_weight}")
+        print(f"  reward_dist_weight: {env_cfg.reward_dist_weight}")
+        print(f"  reward_time_weight: {env_cfg.reward_time_weight}")
+        print(f"  reward_formation_weight: {env_cfg.reward_formation_weight}")
+        print(f"  reward_fuel_weight: {env_cfg.reward_fuel_weight}")
+        print(f"  reward_advantage_weight: {env_cfg.reward_advantage_weight}")
+        print(f"  capture_reward: {env_cfg.capture_reward}")
+        print(f"  reward_timeout_penalty: {env_cfg.reward_timeout_penalty}")
+        print(f"  reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}")
+        print("-" * 30)
+
     print("--- 使用命令行配置启动训练 ---")
     train(train_cfg, env_cfg)
     print("--- 训练结束 ---")

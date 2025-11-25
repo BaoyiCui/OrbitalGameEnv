@@ -50,7 +50,7 @@ class PEEnvCfg:
     ###
     dt: float = 60.0  # 每次机动的间隔时间
     p_dv_step: float = 1.5 # 追击方每次机动的最大速度增量, m/s
-    e_dv_step: float = 1.0 # 逃逸方每次机动的最大速度增量, m/s
+    e_dv_step: float = 0.5 # 逃逸方每次机动的最大速度增量, m/s
     hpop_in = HPOP_In(  # HPOP 初始化参数，全局变量
         inial=True,
         mass=50,
@@ -68,6 +68,7 @@ class PEEnvCfg:
     ###
     # 渲染
     ###
+    debug_rewards: bool = False # 是否打印详细的奖励信息
     debug_vis = False
     width: int = 800
     height: int = 600
@@ -195,9 +196,11 @@ class PEEnv(ParallelEnv):
             else:
                 dv_step = self._config.e_dv_step
 
+            # 限制动作向量的模长（总长度）
             if np.linalg.norm(actions[a]) > dv_step:
                 actions[a] = actions[a] / np.linalg.norm(actions[a]) * dv_step
 
+            # 限制剩余燃料
             if np.linalg.norm(actions[a]) > self.remain_Dvs[a]:
                 actions[a] = actions[a] / np.linalg.norm(actions[a]) * self.remain_Dvs[a]
 

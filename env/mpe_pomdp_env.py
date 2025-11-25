@@ -64,9 +64,15 @@ class MPE_POMDP_Env(MPEEnv):
             self.observation_spaces = {}
             for a in self.possible_agents:
                 if a.startswith('p_'):
-                    self_obs_dim = 6
+                    # 1. 自身维度: 6(状态) + 1(燃料)
+                    self_obs_dim = 7
+                    
+                    # 2. 逃逸者维度 (保持你原有的逻辑)
                     evader_obs_dim = self._config.lstm_future_len * 3 * self._config.num_e
-                    other_pursuers_obs_dim = 3 * (self._config.num_p - 1)
+                    
+                    # 3. 队友维度: (N-1) * (3位置 + 3速度 + 1燃料)
+                    other_pursuers_obs_dim = 7 * (self._config.num_p - 1)
+                    
                     obs_shape = (self_obs_dim + evader_obs_dim + other_pursuers_obs_dim,)
                     self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=obs_shape)
                 else:
@@ -118,15 +124,27 @@ class MPE_POMDP_Env(MPEEnv):
         if self._config.use_partial_obs:
             self._update_predictions_and_prepare_sl_data()
         
+        clipped_actions = {}
         # 动作应用和状态传播
         for a in self.agents:
             if a.startswith('p_'): dv_step = self._config.p_dv_step
             else: dv_step = self._config.e_dv_step
+            if a.startswith('p_'):
+                dv_step = self._config.p_dv_step
+            else:
+                dv_step = self._config.e_dv_step
+
             action = actions.get(a, np.zeros(3))
-            if np.linalg.norm(action) > dv_step: 
+
+            # 限制动作向量的模长（总长度）
+            if np.linalg.norm(action) > dv_step:
                 action = action / np.linalg.norm(action) * dv_step
+
+            # 限制剩余燃料
             if np.linalg.norm(action) > self.remain_Dvs[a]: 
                 action = action / np.linalg.norm(action) * self.remain_Dvs[a]
+            
+            clipped_actions[a] = action
             self.states[a][3:] += action
             self.remain_Dvs[a] -= np.linalg.norm(action)
             #防止除法误差使evader的剩余燃料变负,否则后面无法运行
@@ -147,7 +165,7 @@ class MPE_POMDP_Env(MPEEnv):
                     self.virtual_star_states[evader_id] = new_vs_state
 
         observations = self._get_observations()
-        rewards = self._get_rewards(actions)
+        rewards, debug_reward_info = self._get_rewards(clipped_actions)
         terminations, termination_reasons = self._get_terminations()
         truncations = self._get_truncations()
         self.terminations, self.truncations = terminations, truncations
@@ -176,6 +194,8 @@ class MPE_POMDP_Env(MPEEnv):
         for agent in self.agents:
             current_infos[agent]['termination_reason'] = termination_reasons.get(agent, None)
             current_infos[agent]['episode_statistics'] = self.episode_statistics.copy()
+            if self._config.debug_rewards and agent in debug_reward_info:
+                current_infos[agent]['reward_components'] = debug_reward_info[agent]
 
         for agent in list(self.agents):
             if terminations.get(agent, False) or truncations.get(agent, False):
@@ -192,55 +212,79 @@ class MPE_POMDP_Env(MPEEnv):
             return super()._get_observations()
 
         observations = {}
-        all_positions = {agent_id: self.states[agent_id][:3] for agent_id in self.possible_agents if agent_id in self.states}
+        # 预先获取所有智能体的 完整状态(pos+vel) 和 燃料
+        all_states = {agent_id: self.states[agent_id] for agent_id in self.possible_agents if agent_id in self.states}
+        all_fuels = self.remain_Dvs
         
         for agent_id in self.possible_agents:
             if agent_id not in self.states: continue
             
             if agent_id.startswith('p_'):
                 obs_components = []
-                current_pos = all_positions[agent_id]
                 
-                # 追击者自身状态也进行归一化
-                obs_components.append(self.normalize_state(self.states[agent_id]))
+                # --- 1. 自身信息 (7维) ---
+                my_state = all_states[agent_id]
+                my_pos = my_state[:3]
+                my_vel = my_state[3:]
                 
+                # 归一化自身状态
+                obs_components.append(self.normalize_state(my_state))
+                # 归一化自身燃料
+                obs_components.append(np.array([all_fuels[agent_id] / self._config.p_init_dv]))
+
+                # --- 2. 逃逸者信息 (LSTM预测) ---
                 for i in range(self._config.num_e):
                     evader_id = f'e_{i}'
-                    evader_current_pos = all_positions.get(evader_id)
-                    if evader_current_pos is not None:
-                        # 1. 获取LSTM预测的、归一化的、相对于逃逸者当前位置的位移
-                        norm_rel_to_evader_prediction = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)
-                        
-                        # 2. 将其反归一化为真实的物理位移（米）
-                        real_rel_to_evader_prediction = norm_rel_to_evader_prediction.cpu().numpy() * self.position_scale
-                        
-                        # 3. 加上逃逸者当前绝对位置，得到预测的未来绝对位置
-                        abs_prediction = real_rel_to_evader_prediction + evader_current_pos
-                        
-                        # 4. 减去追击者当前绝对位置，得到追击者视角的相对位置
-                        rel_to_pursuer_prediction = abs_prediction - current_pos
-                        
-                        # 5. 对这个最终用于观测的相对位置再次归一化，以保持所有观测特征尺度一致
-                        obs_components.append((rel_to_pursuer_prediction / self.position_scale).flatten())
-                    else:
-                        obs_components.append(np.zeros(self._config.lstm_future_len * 3))
-                
-                other_pursuer_rel_positions = []
+                    evader_current_pos = all_states.get(evader_id, np.zeros(6))[:3]
+                    
+                    # 获取LSTM预测的、归一化的、相对于逃逸者当前位置的位移
+                    norm_rel_to_evader_prediction = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)
+                    
+                    # 将其反归一化为真实的物理位移（米）
+                    real_rel_to_evader_prediction = norm_rel_to_evader_prediction.cpu().numpy() * self.position_scale
+                    
+                    # 加上逃逸者当前绝对位置，得到预测的未来绝对位置
+                    abs_prediction = real_rel_to_evader_prediction + evader_current_pos
+                    
+                    # 减去追击者当前绝对位置，得到追击者视角的相对位置
+                    rel_to_pursuer_prediction = abs_prediction - my_pos
+                    
+                    # 对这个最终用于观测的相对位置再次归一化
+                    obs_components.append((rel_to_pursuer_prediction / self.position_scale).flatten())
+
+                # --- 3. 队友信息 (每个队友 7维) ---
+                other_pursuer_info = []
                 for i in range(self._config.num_p):
                     pursuer_id = f'p_{i}'
-                    if pursuer_id != agent_id and pursuer_id in all_positions:
-                        rel_pos = all_positions[pursuer_id] - current_pos
-                        # 其他追击者的相对位置也进行归一化
-                        other_pursuer_rel_positions.append(rel_pos / self.position_scale)
+                    if pursuer_id != agent_id:
+                        if pursuer_id in all_states:
+                            other_state = all_states[pursuer_id]
+                            other_pos = other_state[:3]
+                            other_vel = other_state[3:]
+                            
+                            # A. 相对位置 (归一化)
+                            rel_pos = (other_pos - my_pos) / self.position_scale
+                            
+                            # B. 相对速度 (归一化) 
+                            rel_vel = (other_vel - my_vel) / self.velocity_scale
+                            
+                            # C. 队友剩余燃料 (归一化) 
+                            other_fuel = all_fuels[pursuer_id] / self._config.p_init_dv
+                            
+                            # 拼接
+                            other_pursuer_info.append(np.concatenate([rel_pos, rel_vel, [other_fuel]]))
+                        else:
+                            # 无队友的情况
+                            other_pursuer_info.append(np.zeros(7))
                 
-                if other_pursuer_rel_positions:
-                    obs_components.append(np.concatenate(other_pursuer_rel_positions))
+                if other_pursuer_info:
+                    obs_components.append(np.concatenate(other_pursuer_info))
                 elif self._config.num_p > 1:
-                    obs_components.append(np.zeros(3 * (self._config.num_p - 1)))
+                    obs_components.append(np.zeros(7 * (self._config.num_p - 1)))
 
                 observations[agent_id] = np.concatenate(obs_components)
             else:
-                # 逃逸者自身的观测（如果需要）也归一化
+                # 逃逸者自身的观测也归一化
                 observations[agent_id] = self.normalize_state(self.states[agent_id])
         
         return observations
@@ -256,7 +300,7 @@ class MPE_POMDP_Env(MPEEnv):
             self.obs_counters[evader_id] += 1
             history_buffer = self.evader_history_buffers[evader_id]
             
-            # 无论何种情况，存入buffer的都应该是归一化之后的状态
+            # 存入buffer的都是归一化之后的状态
             if self.obs_counters[evader_id] % self._config.obs_interval == 0:
                 true_state_normalized = self.normalize_state(self.states[evader_id])
                 history_buffer.append(true_state_normalized)
@@ -264,7 +308,7 @@ class MPE_POMDP_Env(MPEEnv):
                     vs_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
                     self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
             else:
-                # 伪观测的逻辑也基于归一化数据
+                # 基于归一化数据的伪观测
                 if len(history_buffer) > 0:
                     norm_rel_disp = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)[0].cpu().numpy()
                     prev_norm_state = history_buffer[-1]
