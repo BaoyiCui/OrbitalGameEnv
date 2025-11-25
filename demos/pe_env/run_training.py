@@ -51,6 +51,8 @@ def main():
     # --- 环境与观测配置 ---
     env_parser.add_argument("--num_p", type=int, default=MPE_POMDP_EnvCfg.num_p, help="追捕者(pursuer)的数量")
     env_parser.add_argument("--num_e", type=int, default=MPE_POMDP_EnvCfg.num_e, help="逃逸者(evader)的数量")
+    env_parser.add_argument("--e_init_dist_min_offset", type=float, default=MPE_POMDP_EnvCfg.e_init_dist_min_offset, help="逃跑方初始距离最小偏移 (米)")
+    env_parser.add_argument("--e_init_dist_max_offset", type=float, default=MPE_POMDP_EnvCfg.e_init_dist_max_offset, help="逃跑方初始距离最大偏移 (米)")
     env_parser.add_argument("--use_partial_obs", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_partial_obs, help="是否使用部分可观测环境")
     env_parser.add_argument("--obs_interval", type=int, default=MPE_POMDP_EnvCfg.obs_interval, help="在POMDP中，每隔多少步进行一次真实观测")
     env_parser.add_argument("--use_lambert_reward", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_lambert_reward, help="是否使用Lambert引导奖励 (总开关)")
@@ -110,6 +112,8 @@ def main():
     env_cfg = MPE_POMDP_EnvCfg()
     env_cfg.num_p = args.num_p
     env_cfg.num_e = args.num_e
+    env_cfg.e_init_dist_min_offset = args.e_init_dist_min_offset
+    env_cfg.e_init_dist_max_offset = args.e_init_dist_max_offset
     env_cfg.use_partial_obs = args.use_partial_obs
     env_cfg.obs_interval = args.obs_interval
     env_cfg.lstm_history_len = args.lstm_history_len

@@ -1,4 +1,3 @@
-
 # 1v1 pursuit evasion game
 from __future__ import annotations
 
@@ -28,6 +27,8 @@ class PEEnvCfg:
     init_utc = datetime.datetime(2030, 1, 1, 0, 0, 0)
     p_init_dv: float = 500.0  # 追击方初始剩余delta V, m/s
     e_init_dv: float = 100.0  # 逃逸方初始剩余delta V, m/s
+    e_init_dist_min_offset: float = 20.0e3  # 逃跑方初始距离最小偏移, m
+    e_init_dist_max_offset: float = 120.0e3 # 逃跑方初始距离最大偏移, m
     ###
     # 终止条件
     ###
@@ -147,7 +148,7 @@ class PEEnv(ParallelEnv):
         
         for i in range(self._config.num_e):
             agent_id = f'e_{i}'
-            # 确保逃跑方初始位置与最近追击方的距离在 (dist_cap + 20km, dist_cap + 120km) 的动态范围内
+            # 确保逃跑方初始位置与最近追击方的距离在 (dist_cap + e_init_dist_min_offset, dist_cap + e_init_dist_max_offset) 的动态范围内
             while True:
                 ta_eva = (ta_ref + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
                 eva_state = self._orbit_lib.coe2rv(np.array([
@@ -160,8 +161,8 @@ class PEEnv(ParallelEnv):
                     if dist < min_dist:
                         min_dist = dist
                 
-                # 检查与最近的追击方的距离是否在 (dist_cap + 20km, dist_cap + 120km) 范围内
-                if min_dist > self._config.dist_cap + 20.0e3 and min_dist < self._config.dist_cap + 120.0e3:
+                # 检查与最近的追击方的距离是否在 (dist_cap + e_init_dist_min_offset, dist_cap + e_init_dist_max_offset) 范围内
+                if min_dist > self._config.dist_cap + self._config.e_init_dist_min_offset and min_dist < self._config.dist_cap + self._config.e_init_dist_max_offset:
                     self.states[agent_id] = eva_state
                     break
 

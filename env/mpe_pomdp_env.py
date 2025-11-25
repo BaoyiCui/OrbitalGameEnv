@@ -129,6 +129,8 @@ class MPE_POMDP_Env(MPEEnv):
                 action = action / np.linalg.norm(action) * self.remain_Dvs[a]
             self.states[a][3:] += action
             self.remain_Dvs[a] -= np.linalg.norm(action)
+            #防止除法误差使evader的剩余燃料变负,否则后面无法运行
+            self.remain_Dvs[a] = max(0, self.remain_Dvs[a])
 
         for a in self.agents:
             _, new_state = self._orbit_lib.orbit_hpop(self._time, self.states[a], self._config.dt, self._config.hpop_in)
