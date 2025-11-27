@@ -16,35 +16,29 @@ from copy import copy
 @dataclass
 class PEEnvCfg:
     evader_policy_type: str = "None"  # 可选项 "random", "RL"
-    use_fixed_seed_for_reset: bool = False # [Debug] If true, each episode starts from the exact same initial positions.
+    use_fixed_seed_for_reset: bool = False # [调试开关] 若为True，则每回合都从固定的初始位置开始
 
-    # --- SMA Perturbation ---
-    sma_perturb_start_update: int = 100    # 
-    sma_perturb_end_update: int = 1500   # 
-    sma_perturb_km_max: float = 5.0     #
+    # SMA扰动课程学习
+    sma_perturb_start_update: int = 500    # SMA扰动开始的更新轮次
+    sma_perturb_end_update: int = 1500   # SMA扰动达到最大的更新轮次
+    sma_perturb_km_max: float = 10.0     # SMA扰动的最大幅度（公里）
 
-    ###
     # 追逃智能体数量
-    ###
     num_p: int = 1
     num_e: int = 1
-    ###
+    
     # 初始条件
-    ###
     init_utc = datetime.datetime(2030, 1, 1, 0, 0, 0)
     p_init_dv: float = 500.0  # 追击方初始剩余delta V, m/s
     e_init_dv: float = 100.0  # 逃逸方初始剩余delta V, m/s
     e_init_dist_min_offset: float = 20.0e3  # 逃跑方初始距离最小偏移, m
     e_init_dist_max_offset: float = 120.0e3 # 逃跑方初始距离最大偏移, m
-    ###
+    
     # 终止条件
-    ###
     dist_cap: float = 30.0e3  # 距离 < dist_cap (30km), 抓捕成功
     episode_length: float = 3600.0 * 24  # 每个episode的时间长度
 
-    ###
     # 奖励函数设计
-    ###
     reward_dist_weight: float = 0.00001 # 距离奖励的经验权重 
     reward_time_weight: float = 0.1 # 时间奖励的固定系数
     reward_advantage_weight: float = 5.0 # 过程优势奖励的经验权重 
@@ -52,9 +46,7 @@ class PEEnvCfg:
     reward_capture: float = 20.0 # 成功抓捕的奖励
     advantage_reward_horizon: float = 3600.0 # 优势奖励的预测时间窗口 (秒, 60分钟)
 
-    ###
     # 仿真参数设置
-    ###
     dt: float = 60.0  # 每次机动的间隔时间
     p_dv_step: float = 1.5 # 追击方每次机动的最大速度增量, m/s
     e_dv_step: float = 0.5 # 逃逸方每次机动的最大速度增量, m/s
@@ -72,9 +64,7 @@ class PEEnvCfg:
         Dyn_Type=0  # 无效，J2摄动
     )
 
-    ###
     # 渲染
-    ###
     debug_rewards: bool = False # 是否打印详细的奖励信息
     debug_vis = False
     width: int = 800
@@ -140,8 +130,8 @@ class PEEnv(ParallelEnv):
 
     def update_curriculum(self, current_update: int):
         """
-        Called by the training loop to update curriculum-based parameters.
-        This method implements the linear ramp-up for SMA perturbation.
+        由训练循环调用，以更新基于课程学习的参数。
+        此方法为SMA扰动实现线性增长。
         """
         start = self._config.sma_perturb_start_update
         end = self._config.sma_perturb_end_update
@@ -152,21 +142,21 @@ class PEEnv(ParallelEnv):
         elif current_update >= end:
             new_perturb = max_perturb
         else:
-            # Linear interpolation
+            # 线性插值
             progress = (current_update - start) / (end - start)
             new_perturb = progress * max_perturb
         
-        # Print a message only when the value changes
+        # 仅当数值变化时打印提示信息
         if new_perturb > 0 and self.current_sma_perturb_km == 0.0:
-             print(f"\n*** Curriculum: Update {current_update}, starting SMA perturbation ramp-up. ***")
+             print(f"\n*** 课程学习: 更新 {current_update}, 开始SMA扰动线性增长。 ***")
         
         if new_perturb > self.current_sma_perturb_km:
             self.current_sma_perturb_km = new_perturb
 
     def reset(self, seed=None, options=None):
-        # If debug flag is set, always use the same seed for reset to get a fixed scenario
+        # 若开启固定场景调试，则重置随机种子
         if self._config.use_fixed_seed_for_reset:
-            np.random.seed(42) # Use a fixed seed, e.g., 42
+            np.random.seed(42) # 使用固定的随机种子
 
         self.agents = copy(self.possible_agents)
         base_sma = 42166300.0
@@ -185,7 +175,7 @@ class PEEnv(ParallelEnv):
             noise = np.random.uniform(-0.26, 0.26) 
             ta_pur = (ta_ref + i * angle_step + noise) % (2 * np.pi)
 
-            # Apply SMA perturbation if enabled by curriculum
+            # 应用课程学习的SMA扰动
             current_sma = base_sma
             if self.current_sma_perturb_km > 0:
                 perturbation_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
@@ -206,7 +196,7 @@ class PEEnv(ParallelEnv):
                 # 完全随机角度
                 ta_eva = np.random.uniform(0.0, 2 * np.pi)
 
-                # Apply SMA perturbation if enabled by curriculum
+                # 应用课程学习的SMA扰动
                 current_sma = base_sma
                 if self.current_sma_perturb_km > 0:
                     perturbation_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)

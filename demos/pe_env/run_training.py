@@ -26,7 +26,7 @@ NEW_REWARD_DEFAULTS = {
     "reward_time_weight": 0.01,
     "reward_formation_weight": 0.04,
     "reward_fuel_weight": 0.005,
-    "reward_advantage_weight": 0.02,
+    "reward_advantage_weight": 0.002,
     "capture_reward": 20.0,
     "reward_timeout_penalty": -2,
     "reward_fuelout_penalty": -3,
@@ -200,7 +200,7 @@ def main():
         print("-" * 30)
 
     print("--- 使用命令行配置启动训练 ---")
-    train(train_cfg, env_cfg)
+    train(train_cfg, env_cfg, vars(args))
     print("--- 训练结束 ---")
 
 if __name__ == "__main__":

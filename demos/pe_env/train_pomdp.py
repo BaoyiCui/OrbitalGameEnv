@@ -1,4 +1,3 @@
-
 import sys
 import os
 
@@ -18,13 +17,9 @@ import random
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
 from env.encoder import AttentionBasedEncoder
 
-# --- 1. 超参数配置 ---
 class TrainConfig:
     """训练超参数配置"""
-    # --- Encoder 配置 ---
-    use_encoder: bool = True  # 选择是否使用新的Encoder结构
-
-    # --- 算法超参数 ---
+    use_encoder: bool = True  # 是否在Actor网络中使用Attention Encoder
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_coef: float = 0.2
@@ -38,13 +33,9 @@ class TrainConfig:
     sl_lr: float = 5e-4 # LSTM的学习率
     num_mini_batches: int = 4
     update_epochs: int = 5
-
-    # --- 训练过程超参数 ---
     total_timesteps: int = 5_000_000
     num_steps: int = 2048
     num_envs: int = 1
-
-    # --- 课程学习超参数 ---
     initial_episode_length: int = 3600 * 10
     curriculum_check_episodes: int = 50
     success_rate_threshold: float = 0.7
@@ -54,8 +45,6 @@ class TrainConfig:
     p_init_dv_decrement: float = 100.0
     min_dist_cap: float = 30e3
     min_p_init_dv: float = 200.0
-
-    # --- 其他 ---
     debug_critic: bool = False # 是否打印Critic诊断信息
     resume_from_checkpoint: str = None # 从指定检查点恢复训练
     checkpoint_interval: int = 50 # 每隔N个update保存一次检查点
@@ -63,10 +52,6 @@ class TrainConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     run_name: str = f"mpe_pomdp_lstm_{int(time.time())}"
 
-
-# --- 2. Actor-Critic 网络 ---
-
-# --- 辅助函数：正交初始化 ---
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
@@ -76,14 +61,11 @@ class ActorCritic(nn.Module):
     def __init__(self, actor_obs_dim, critic_obs_dim, act_dim, env, env_cfg, train_cfg):
         super().__init__()
         self.use_encoder = train_cfg.use_encoder
-        
-        # --- 1. Encoder / Actor 主干 ---
         if self.use_encoder:
             self_dim = 7
             lstm_pred_dim = env_cfg.lstm_future_len * 3 * env_cfg.num_e
             other_dim = 7 * (env_cfg.num_p - 1)
             ob_dim = 0
-            
             self.encoder = AttentionBasedEncoder(
                 self_dim=self_dim,
                 other_dim=other_dim,
@@ -93,39 +75,27 @@ class ActorCritic(nn.Module):
                 nhead=4
             )
             encoder_output_dim = 256
-            
-            # 修改：Actor Head 使用正交初始化，增益为 0.01 (让初始动作接近 0)
             self.actor_head = layer_init(nn.Linear(encoder_output_dim, act_dim), std=0.01)
         else:
-            # 修改：使用正交初始化构建 MLP
             self.actor_net = nn.Sequential(
                 layer_init(nn.Linear(actor_obs_dim, 256)),
                 nn.Tanh(),
                 layer_init(nn.Linear(256, 256)),
                 nn.Tanh(),
-                layer_init(nn.Linear(256, act_dim), std=0.01) # 最后一层增益 0.01
+                layer_init(nn.Linear(256, act_dim), std=0.01)
             )
-
-        # --- 2. Critic 网络 (使用正交初始化) ---
         self.critic_net = nn.Sequential(
             layer_init(nn.Linear(critic_obs_dim, 512)),
             nn.Tanh(),
             layer_init(nn.Linear(512, 512)),
             nn.Tanh(),
-            layer_init(nn.Linear(512, 1), std=1.0) # Critic 输出层增益 1.0
+            layer_init(nn.Linear(512, 1), std=1.0)
         )
-        
-        # 初始 LogStd 设置为 -0.5 (std ≈ 0.6)，比 0 (std=1) 更适合精细操作
         self.actor_logstd = nn.Parameter(torch.ones(1, act_dim) * -0.5)
-        
-        # --- 3. 动作缩放参数 ---
         pursuer_ids = [f'p_{i}' for i in range(env_cfg.num_p)]
         action_space = env.action_spaces[pursuer_ids[0]]
-        # 注册为 buffer，这样 device 会自动管理，且不会被视为模型参数更新
         self.register_buffer("action_scale", torch.tensor((action_space.high - action_space.low) / 2.0, dtype=torch.float32))
         self.register_buffer("action_bias", torch.tensor((action_space.high + action_space.low) / 2.0, dtype=torch.float32))
-
-        # --- 4. LSTM (保持不变) ---
         if env_cfg.lstm_scheme == 1:
             from env.lstm import TrajectoryPredictor
             self.lstm = TrajectoryPredictor(input_dim=6, hidden_dim=128, output_dim=env_cfg.lstm_future_len * 3, num_layers=2)
@@ -137,63 +107,33 @@ class ActorCritic(nn.Module):
         return self.critic_net(central_obs)
 
     def get_action_and_value(self, obs, central_obs, action=None, deterministic=False):
-        """
-        新增 deterministic 参数：用于评估时只输出均值
-        """
-        # 1. 计算均值
         if self.use_encoder:
             h = self.encoder(obs)
             action_mean = self.actor_head(h)
         else:
             action_mean = self.actor_net(obs)
-
-        # 2. 限制 LogStd 范围 (改进点：数值稳定性)
-        # 将 logstd 限制在 [-20, 2] 之间，防止 std 过小导致 NaN 或 过大导致完全随机
         clipped_logstd = torch.clamp(self.actor_logstd, -20, 2)
         action_std = torch.exp(clipped_logstd).expand_as(action_mean)
-        
-        # 3. 构建分布
         probs = torch.distributions.Normal(action_mean, action_std)
-        
         if action is None:
             if deterministic:
-                # 评估模式：直接使用均值，不再采样
                 pre_tanh_action = action_mean
             else:
-                # 训练模式：采样
                 pre_tanh_action = probs.rsample()
-                
             tanh_action = torch.tanh(pre_tanh_action)
             final_action = self.action_bias + self.action_scale * tanh_action
         else:
-            # 训练更新阶段：从 buffer 中的实际 action 反推
-            # 反归一化
             unscaled_action = (action - self.action_bias) / self.action_scale
-            
-            # 安全的 atanh (防止数值越界出现 NaN)
-            # 这里的 clamp 极其重要，因为浮点数误差可能导致 unscaled_action 稍微超过 1
             pre_tanh_action = torch.atanh(torch.clamp(unscaled_action, -1.0 + 1e-6, 1.0 - 1e-6))
-            
             final_action = action
-            # 对于反推的情况，tanh_action 需要重新计算以便用于 correction
             tanh_action = torch.tanh(pre_tanh_action)
-
-        # 4. 计算 Log Probability (包含 Tanh 修正)
         log_prob_pre_tanh = probs.log_prob(pre_tanh_action).sum(1)
-        
-        # 修正公式： log(p(y)) = log(p(x)) - sum(log(1 - tanh(x)^2))
-        # 使用 1e-6 保证稳定性
         log_prob_correction = torch.log(self.action_scale * (1.0 - tanh_action.pow(2)) + 1e-6).sum(1)
-        
         log_prob = log_prob_pre_tanh - log_prob_correction
-        
         entropy = probs.entropy().sum(1)
         value = self.critic_net(central_obs)
-        
         return final_action, log_prob, entropy, value
 
-
-# --- 3. Rollout Buffer ---
 class CentralizedRolloutBuffer:
     def __init__(self, num_steps, num_agents, actor_obs_dim, critic_obs_dim, act_dim, device, lstm_cfg):
         self.num_steps = num_steps
@@ -258,49 +198,34 @@ class CentralizedRolloutBuffer:
                 self.sl_future_gts[step_indices, agent_indices],
             )
 
-# --- 4. 训练主函数 ---
-def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
+def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    # Build path relative to this script's location to be robust
-    # This ensures the 'runs' directory is always created inside 'OrbitalGameEnv'
-    # regardless of where the script is called from.
+    # 为保证路径稳健，基于脚本自身位置构建路径
     script_dir = Path(__file__).resolve().parent
-    # script_dir = .../OrbitalGameEnv/demos/pe_env
-    # base_dir = .../OrbitalGameEnv
     base_dir = script_dir.parent.parent
     run_dir = base_dir / "runs" / cfg.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(str(run_dir))
 
-    # 将本次运行的奖励参数保存到文件中
-    params_path = run_dir / "reward_params.txt"
+    # 将所有生效的参数保存到文件中
+    params_path = run_dir / "all_params.txt"
     with open(params_path, "w") as f:
-        params_content = f"""--- Reward Parameters ---
-lambert_reward_weight: {env_cfg.lambert_reward_weight}
-reward_dist_weight: {env_cfg.reward_dist_weight}
-reward_time_weight: {env_cfg.reward_time_weight}
-reward_formation_weight: {env_cfg.reward_formation_weight}
-reward_fuel_weight: {env_cfg.reward_fuel_weight}
-reward_advantage_weight: {env_cfg.reward_advantage_weight}
-capture_reward: {env_cfg.capture_reward}
-reward_timeout_penalty: {env_cfg.reward_timeout_penalty}
-reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
-"""
-        f.write(params_content)
-    print(f"Reward parameters saved to {params_path}")
+        f.write("--- All Run Parameters ---\\n")
+        for key, value in sorted(all_params.items()):
+            f.write(f"{key}: {value}\\n")
+    print(f"All run parameters saved to {params_path}")
 
-    # --- 优雅关闭与检查点 ---
     shutdown_requested = False
     def signal_handler(sig, frame):
         nonlocal shutdown_requested
         if not shutdown_requested:
-            print("\nCtrl+C received! Finishing current update and saving checkpoint...")
+            print("\\nCtrl+C received! Finishing current update and saving checkpoint...")
             shutdown_requested = True
         else:
-            print("\nSecond Ctrl+C received! Forcing exit.")
+            print("\\nSecond Ctrl+C received! Forcing exit.")
             sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -310,7 +235,6 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
     writer.add_text("hyperparameters", f"<pre>{vars(cfg)}</pre>")
 
     env = MPE_POMDP_Env(env_cfg)
-
     
     current_episode_length = cfg.initial_episode_length
     current_dist_cap = cfg.initial_dist_cap
@@ -341,7 +265,6 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
 
     buffer = CentralizedRolloutBuffer(cfg.num_steps, env_cfg.num_p, actor_obs_dim, critic_obs_dim, act_dim, cfg.device, env_cfg)
 
-    # --- 检查点加载 ---
     start_update = 1
     global_step = 0
     if cfg.resume_from_checkpoint:
@@ -352,7 +275,6 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
         lstm_optimizer.load_state_dict(checkpoint['lstm_optimizer_state_dict'])
         start_update = checkpoint['update'] + 1
         global_step = checkpoint['global_step']
-        # 加载课程学习状态
         current_episode_length = checkpoint.get('current_episode_length', cfg.initial_episode_length)
         current_dist_cap = checkpoint.get('current_dist_cap', cfg.initial_dist_cap)
         current_p_init_dv = checkpoint.get('current_p_init_dv', cfg.initial_p_init_dv)
@@ -362,33 +284,27 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
 
     num_updates = cfg.total_timesteps // (cfg.num_steps * cfg.num_envs)
     
-    # 用于记录最近N个回合的统计数据
     recent_episode_stats = deque(maxlen=cfg.curriculum_check_episodes) 
     
-    # 用于记录当前回合的数据
     current_episode_return = 0.0
     current_episode_length = 0
     current_episode_components = {}
 
-    obs, infos = env.reset()
+    obs, infos = env.reset() 
     
     for update in range(start_update, num_updates + 1):
-        # --- Update curriculum ---
         env.update_curriculum(update)
 
-        # --- 新增：熵系数退火逻辑 ---
         if cfg.anneal_ent:
             anneal_start_update = cfg.ent_anneal_start_frac * num_updates
             if update < anneal_start_update:
                 current_ent_coef = cfg.ent_coef
             else:
-                # 线性衰减
                 progress = (update - anneal_start_update) / (num_updates - anneal_start_update)
-                progress = min(1.0, progress)  # 确保 progress 不会超过 1
+                progress = min(1.0, progress)
                 current_ent_coef = cfg.ent_coef - progress * (cfg.ent_coef - cfg.final_ent_coef)
         else:
             current_ent_coef = cfg.ent_coef
-        # --- 熵系数退火逻辑结束 ---
 
         start_time = time.time()
         
@@ -412,12 +328,9 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
 
             next_obs, rewards, terminations, truncations, infos = env.step(actions_to_step)
             
-
-            # 注意：这里我们累加的是所有追击者奖励的总和
             pursuer_rewards_sum = sum(rewards.get(name, 0) for name in pursuer_ids)
             current_episode_return += pursuer_rewards_sum
 
-            # 如果开启诊断模式，则累加奖励分量
             if cfg.debug_critic:
                 for name in pursuer_ids:
                     if name in infos and 'reward_components' in infos[name]:
@@ -441,15 +354,13 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
                     writer.add_scalar("charts/episodic_return", current_episode_return, global_step)
                     writer.add_scalar("charts/episodic_length", current_episode_length, global_step)
 
-                    # 如果开启诊断模式，则打印奖励分量
                     if cfg.debug_critic and current_episode_components:
                         print(f"--- Episode End Breakdown ---")
                         for key, value in sorted(current_episode_components.items()):
                             print(f"  Sum {key}: {value:.2f}")
                         print("-----------------------------")
 
-                # Reset episode-specific trackers
-                obs, infos = env.reset()
+                obs, infos = env.reset() 
                 current_episode_return = 0.0
                 current_episode_length = 0
                 current_episode_components = {}
@@ -468,7 +379,6 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
         mini_batch_size = batch_size // cfg.num_mini_batches
         
         agent.train()
-        # 初始化用于记录整个 update 周期内的 loss
         avg_v_loss, avg_pg_loss, avg_sl_loss, avg_entropy_loss = 0, 0, 0, 0
         num_minibatches_processed = 0
 
@@ -512,25 +422,22 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
                 nn.utils.clip_grad_norm_(agent.lstm.parameters(), 0.5)
                 lstm_optimizer.step()
 
-                # 累加 loss
                 avg_v_loss += v_loss.item()
                 avg_pg_loss += pg_loss.item()
                 avg_sl_loss += sl_loss.item()
                 avg_entropy_loss += entropy_loss.item()
                 num_minibatches_processed += 1
 
-        # 计算 Explained Variance
         y_pred, y_true = buffer.values.cpu().numpy(), buffer.returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         if cfg.debug_critic:
-            print("\n" + "-" * 30)
+            print("\\n" + "-" * 30)
             print(f"--- Critic Diagnosis (Update {update}) ---")
             print(f"Values (Pred) | Mean: {y_pred.mean():.4f}, Std: {y_pred.std():.4f}, Range: [{y_pred.min():.4f}, {y_pred.max():.4f}]")
             print(f"Returns (True)| Mean: {y_true.mean():.4f}, Std: {y_true.std():.4f}, Range: [{y_true.min():.4f}, {y_true.max():.4f}]")
             print(f"Diff (L2 Loss)| Mean Abs Err: {np.abs(y_true - y_pred).mean():.4f}")
-            # 随机抽 3 个样本看看
             if len(y_pred.flatten()) > 3:
                 y_pred_flat = y_pred.flatten()
                 y_true_flat = y_true.flatten()
@@ -545,7 +452,6 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
         sps = int(cfg.num_steps / (time.time() - start_time))
         print(f"Update: {update}/{num_updates}, SPS: {sps}, Explained Variance: {explained_var:.2f}")
         
-        # 记录平均 loss
         writer.add_scalar("losses/value_loss", avg_v_loss / num_minibatches_processed, global_step)
         writer.add_scalar("losses/policy_loss", avg_pg_loss / num_minibatches_processed, global_step)
         writer.add_scalar("losses/entropy_loss", avg_entropy_loss / num_minibatches_processed, global_step)
@@ -554,10 +460,9 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
         writer.add_scalar("info/explained_variance", explained_var, global_step)
         writer.add_scalar("info/ent_coef", current_ent_coef, global_step)
 
-        # --- 检查点保存 ---
         if (update % cfg.checkpoint_interval == 0) or shutdown_requested:
             checkpoint_path = checkpoint_dir / f"update_{update}.pt"
-            print(f"\nSaving checkpoint to {checkpoint_path}...")
+            print(f"\\nSaving checkpoint to {checkpoint_path}...")
             torch.save({
                 'update': update,
                 'global_step': global_step,
@@ -574,10 +479,7 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
             print("Graceful shutdown complete.")
             break
 
-        # 课程学习与统计日志
         if len(recent_episode_stats) >= 2:
-            # 确保我们有足够的数据来进行有意义的统计
-            # 这里可以根据需要调整检查的最小 episode 数量
             if update > 10 and len(recent_episode_stats) > 10:
                 total_eps = recent_episode_stats[-1]['total_episodes'] - recent_episode_stats[0]['total_episodes']
                 if total_eps > 0:

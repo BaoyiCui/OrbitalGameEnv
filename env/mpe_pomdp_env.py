@@ -26,7 +26,7 @@ class MPE_POMDP_EnvCfg(MPEEnvCfg):
     obs_interval: int = 2
     lstm_history_len: int = 20
     lstm_future_len: int = 10
-    lstm_scheme: int = 1  # 1:rel-to-last, 2:rel-to-virtual-star, 3:rel-to-first
+    lstm_scheme: int = 2  
 
     # Lambert奖励配置 
     use_lambert_reward: bool = True

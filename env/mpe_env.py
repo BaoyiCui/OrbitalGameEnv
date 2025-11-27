@@ -1,4 +1,4 @@
-# MPE-Env: 使用继承实现的多智能体追逃环境，此处是完全可观测的环境，对应的训练脚本是train.py
+# MPE-Env: 使用继承实现的多智能体追逃环境
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,37 +12,32 @@ from .pe_env import PEEnv, PEEnvCfg
 
 @dataclass
 class MPEEnvCfg(PEEnvCfg):
-    """多智能体追逃环境的配置,后续需要调试"""
-    # --- 4v1场景 ---
+    """多智能体追逃环境的配置"""
     num_p: int = 4
     num_e: int = 1
     
-    # --- 覆盖多智能体逻辑的奖励权重 ---
-    reward_dist_weight: float = 0.002  # 距离权重
-    reward_time_weight: float = 0.01  # 时间惩罚权重
-    reward_formation_weight: float = 0.04  # 群体形成奖励权重
-    reward_fuel_weight: float = 0.05  # 燃料消耗惩罚权重
-    # 稀疏奖励
-    # Reward settings
+    # 多智能体场景下的奖励权重
+    reward_dist_weight: float = 0.002
+    reward_time_weight: float = 0.01
+    reward_formation_weight: float = 0.04
+    reward_fuel_weight: float = 0.05
     capture_reward: float = 10.0
-    reward_timeout_penalty: float = -2.0  # 超时失败的惩罚
-    reward_fuelout_penalty: float = -1.0  # 燃料耗尽的惩罚
+    reward_timeout_penalty: float = -2.0
+    reward_fuelout_penalty: float = -1.0
     fuel_penalty_weight: float = 0.1
 
-    # 过程优势奖励参数
-    reward_advantage_weight: float = 0.05  # 过程优势奖励的权重
-    advantage_reward_horizon: float = 3600*2  # 优势奖励的预测时间窗口（单位秒）
-    arena_radius: float = 10e+3  # 参考距离（单位：米），用于距离缩小
+    # 过程优势奖励
+    reward_advantage_weight: float = 0.05
+    advantage_reward_horizon: float = 3600*2
+    arena_radius: float = 10e+3  # 参考距离（米），用于奖励归一化
 
 class MPEEnv(PEEnv):
     """
     继承自PEEnv的多智能体追逃环境。
-    它为多追击者场景修改了观测空间、奖励函数和终止条件。
-    支持课程学习
+    为多追击者场景修改了观测空间、奖励函数和终止条件。
     """
     def __init__(self, config: MPEEnvCfg = MPEEnvCfg()):
-        # 初始化基类。基类的__init__会完成所有设置
-        # 除了需要在此处覆盖的观测空间
+        # 初始化基类
         super().__init__(config)
 
         self.pursuer_ids = [f'p_{i}' for i in range(self._config.num_p)]
@@ -50,16 +45,14 @@ class MPEEnv(PEEnv):
         
         self.metadata["is_parallelizable"] = True
         
-        # --- 覆盖多智能体场景下的观测空间 ---
-        """注意这里观测空间后续不完全观测的情况需要更改"""
+        # 为多智能体场景覆盖观测空间
         self.observation_spaces = {}
         for a in self.possible_agents:
             if a.startswith('p_'):
-                # 维度6 (自身) + 3*num_e (逃逸方) + 3*(num_p-1) (其他追击方)
+                # 自身状态(6) + 所有逃逸者绝对位置(3*num_e) + 其他追击者相对位置(3*(num_p-1))
                 obs_shape = (6 + 3 * self._config.num_e + 3 * (self._config.num_p - 1),)
                 self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=obs_shape)
             else:
-                # 维度6 (自身) ，逃逸方的观测空间可根据需要进一步扩展
                 self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=(6,))
         
         self.infos = {a: {} for a in self.possible_agents}
@@ -154,10 +147,9 @@ class MPEEnv(PEEnv):
         if not evader_positions or not pursuer_positions:
             return rewards, debug_reward_info
 
-        # 计算到逃逸方的距离
         dists_to_evader = [np.linalg.norm(p_pos - evader_positions[0]) for p_pos in pursuer_positions]
         
-        # 1. 渐进式接近奖励
+        # 渐进式接近奖励
         dist_rewards = {}
         for i, agent_id in enumerate(self.pursuer_ids):
             if agent_id in self.agents:
@@ -175,19 +167,15 @@ class MPEEnv(PEEnv):
                     self.min_dists[agent_id] = current_dist
                 
                 dist_rewards[agent_id] = dist_change_reward + min_dist_bonus
-                
-                # 更新上一时刻的距离
                 self.previous_dists[agent_id] = current_dist
 
-        # 2. 队形奖励
+        # 队形奖励
         formation_score = self._calculate_formation_score(pursuer_positions, evader_positions[0])
-        # 队形越好(score越小)，奖励越高
         formation_reward = self._config.reward_formation_weight * (1.0 / (1.0 + formation_score))
         
-        # 检查抓捕状态
         capture_occurred = min(dists_to_evader) < self._config.dist_cap
 
-        # 3. 过程优势奖励
+        # 过程优势奖励
         num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
         future_rewards = {a: 0.0 for a in self.pursuer_ids}
         
@@ -225,17 +213,15 @@ class MPEEnv(PEEnv):
                     
                     future_rewards[agent_id] = radv
 
-        # 4. 分配总奖励
+        # 分配总奖励
         for i, agent_id in enumerate(self.pursuer_ids):
             if agent_id in self.agents:
-                # 各项奖励分量
                 r_dist = dist_rewards.get(agent_id, 0.0)
                 r_formation = formation_reward
                 r_time = -self._config.reward_time_weight
                 r_fuel = -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3)))
                 r_adv = future_rewards.get(agent_id, 0.0)
 
-                # 总奖励
                 rewards[agent_id] = r_dist + r_formation + r_time + r_fuel + r_adv
                 
                 if self._config.debug_rewards:
@@ -248,7 +234,7 @@ class MPEEnv(PEEnv):
                         "total_pre_terminal": rewards[agent_id]
                     })
 
-        # 5. 抓捕成功/失败的终端奖励
+        # 抓捕成功/失败的终端奖励
         if capture_occurred:
             for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
@@ -299,9 +285,9 @@ class MPEEnv(PEEnv):
         terminations = {a: False for a in self.agents}
         termination_reasons = {a: None for a in self.agents}  # 记录终止原因
         
-        # 1. 检查抓捕成功
+        # 检查抓捕成功
         evader_pos = None
-        if 'e_0' in self.states:  # 目前只有一个逃方
+        if 'e_0' in self.states:
             evader_pos = self.states['e_0'][:3]
         
         if evader_pos is not None:
@@ -317,12 +303,7 @@ class MPEEnv(PEEnv):
                 termination_reasons = {a: 'capture_success' for a in self.agents}
                 return terminations, termination_reasons
 
-        # 2. 检查燃料耗尽（失败）
-        # if any(dv <= 0 for dv in self.remain_Dvs.values()):
-        #     terminations = {a: True for a in self.agents}
-        #     termination_reasons = {a: 'fuel_out' for a in self.agents}
-        #     return terminations, termination_reasons
-        # if any(dv <= 0 for dv in self.remain_Dvs.values()):
+        # 检查燃料耗尽
         for a in self.agents:
           if ('p' in a) and self.remain_Dvs[a] <=0: 
             terminations = {a: True for a in self.agents}
@@ -330,7 +311,7 @@ class MPEEnv(PEEnv):
             return terminations, termination_reasons
 
 
-        # 3. 检查超时（失败）
+        # 检查超时
         if self._time >= self._config.init_utc + datetime.timedelta(seconds=self._config.episode_length):
             terminations = {a: True for a in self.agents}
             termination_reasons = {a: 'timeout' for a in self.agents}
@@ -423,37 +404,98 @@ class MPEEnv(PEEnv):
         return observations, rewards, self.terminations, self.truncations, self.infos
 
     def reset(self, seed=None, options=None):
-        """重写reset方法,保留课程学习统计"""
-        # 调用父类的reset
-        observations, self.infos = super().reset(seed, options)
+        # If debug flag is set, always use the same seed for reset to get a fixed scenario
+        if self._config.use_fixed_seed_for_reset:
+            np.random.seed(42) # Use a fixed seed, e.g., 42
 
+        self.agents = self.possible_agents[:]
+        
+        # --- 1. 基础轨道参数 ---
+        base_sma = 42166300.0  # 地球同步轨道
+        ecc = 0.0
+        inc = 0.0 
+        raan, argp = 0.0, 0.0
+        
+        # --- 2. 生成逃逸者 (Evader) ---
+        self.states = {} # Reset states dict
+        # 逃逸者在圆周上随机位置
+        ta_eva = np.random.uniform(0.0, 2 * np.pi)
+        
+        # 给逃逸者一点点高度随机性
+        eva_sma = base_sma
+        if self.current_sma_perturb_km > 0:
+            perturb_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+            eva_sma += perturb_m
+        
+        self.states['e_0'] = self._orbit_lib.coe2rv(np.array([
+            eva_sma, ecc, inc, raan, argp, ta_eva
+        ]))
+        
+        # --- 3. 生成追击者 (Pursuers) - 动态扇环分布 ---
+        current_cap = self._config.dist_cap 
+        inner_dist = current_cap + self._config.e_init_dist_min_offset
+        outer_dist = current_cap + self._config.e_init_dist_max_offset
+        
+        # 创建一个平衡的前后方向列表并随机打乱
+        num_forward = self._config.num_p // 2 + self._config.num_p % 2
+        num_backward = self._config.num_p // 2
+        directions = ([1.0] * num_forward) + ([-1.0] * num_backward)
+        np.random.shuffle(directions)
+
+        for i in range(self._config.num_p):
+            agent_id = f'p_{i}'
+            
+            target_dist = np.random.uniform(inner_dist, outer_dist)
+            
+            # 使用打乱后的方向
+            direction = directions[i]
+            
+            # 将距离转换为角度偏移
+            angle_offset = (target_dist / base_sma) * direction
+            ta_pur = (ta_eva + angle_offset) % (2 * np.pi)
+            
+            # 轨道高度 (SMA) 随机化
+            pur_sma = base_sma
+            if self.current_sma_perturb_km > 0:
+                perturb_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+                pur_sma += perturb_m
+
+            self.states[agent_id] = self._orbit_lib.coe2rv(np.array([
+                pur_sma, ecc, inc, raan, argp, ta_pur
+            ]))
+
+        self._time = self._config.init_utc
+        
+        # 初始化燃料
+        self.remain_Dvs = {}
+        for a in self.agents:
+            if a.startswith('p_'):
+                self.remain_Dvs[a] = self._config.p_init_dv
+            else:
+                self.remain_Dvs[a] = self._config.e_init_dv
+        
+        # 初始化奖励计算所需的状态
         self.terminations = {a: False for a in self.agents}
         self.truncations = {a: False for a in self.agents}
+        evader_pos = self.states[self.evader_ids[0]][:3]
+        for p_id in self.pursuer_ids:
+            p_pos = self.states[p_id][:3]
+            initial_dist = np.linalg.norm(p_pos - evader_pos)
+            self.previous_dists[p_id] = initial_dist
+            self.min_dists[p_id] = initial_dist
+
+        # Reset Viewer
+        if self.viewer is not None:
+            self.viewer.reset()
+
+        # 生成观测
+        observations = self._get_observations()
         
-        # 初始化渐进式奖励所需的状态
-        evader_pos = None
-        if self.evader_ids and self.evader_ids[0] in self.states:
-            evader_pos = self.states[self.evader_ids[0]][:3]
-
-        if evader_pos is not None:
-            for p_id in self.pursuer_ids:
-                if p_id in self.states:
-                    p_pos = self.states[p_id][:3]
-                    initial_dist = np.linalg.norm(p_pos - evader_pos)
-                    self.previous_dists[p_id] = initial_dist
-                    self.min_dists[p_id] = initial_dist
-                else:
-                    self.previous_dists[p_id] = float('inf')
-                    self.min_dists[p_id] = float('inf')
-        else:
-            self.previous_dists = {p_id: float('inf') for p_id in self.pursuer_ids}
-            self.min_dists = {p_id: float('inf') for p_id in self.pursuer_ids}
-
-        # 在infos中添加统计信息
+        # 初始化 Info 统计
+        self.infos = {a: {} for a in self.agents}
         for agent in self.agents:
-            if agent not in self.infos: self.infos[agent] = {}
             self.infos[agent]['episode_statistics'] = self.episode_statistics.copy()
-        
+
         return observations, self.infos
 
     def get_success_rate(self):
