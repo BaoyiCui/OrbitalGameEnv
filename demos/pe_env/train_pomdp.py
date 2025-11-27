@@ -264,7 +264,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg):
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    run_dir = Path(f"OrbitalGameEnv/runs/{cfg.run_name}")
+    # Build path relative to this script's location to be robust
+    # This ensures the 'runs' directory is always created inside 'OrbitalGameEnv'
+    # regardless of where the script is called from.
+    script_dir = Path(__file__).resolve().parent
+    # script_dir = .../OrbitalGameEnv/demos/pe_env
+    # base_dir = .../OrbitalGameEnv
+    base_dir = script_dir.parent.parent
+    run_dir = base_dir / "runs" / cfg.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(str(run_dir))
 
