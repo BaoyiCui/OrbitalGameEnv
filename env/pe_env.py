@@ -16,6 +16,13 @@ from copy import copy
 @dataclass
 class PEEnvCfg:
     evader_policy_type: str = "None"  # 可选项 "random", "RL"
+    use_fixed_seed_for_reset: bool = False # [Debug] If true, each episode starts from the exact same initial positions.
+
+    # --- SMA Perturbation ---
+    sma_perturb_start_update: int = 100    # 
+    sma_perturb_end_update: int = 1500   # 
+    sma_perturb_km_max: float = 5.0     #
+
     ###
     # 追逃智能体数量
     ###
@@ -100,6 +107,9 @@ class PEEnv(ParallelEnv):
         self._time = self._config.init_utc
         self.render_mode = None
 
+        # --- Curriculum Learning State ---
+        self.current_sma_perturb_km = 0.0
+
         possible_p = [f'p_{i}' for i in range(self._config.num_p)]
         possible_e = [f'e_{i}' for i in range(self._config.num_e)]
         self.possible_agents = possible_p + possible_e
@@ -128,44 +138,99 @@ class PEEnv(ParallelEnv):
         # 渲染器将在第一次调用render()时被初始化
         self.viewer = None
 
-    def reset(self, seed=None, options=None):
-        self.agents = copy(self.possible_agents)
-        sma = 42166300.0  # 轨道半长轴, m
-        ecc = 0.0
-        inc = 0.0
-        argp = 0.0
-        raan = 0.0
-        ta_ref = np.random.uniform(0.0, 2 * np.pi)
+    def update_curriculum(self, current_update: int):
+        """
+        Called by the training loop to update curriculum-based parameters.
+        This method implements the linear ramp-up for SMA perturbation.
+        """
+        start = self._config.sma_perturb_start_update
+        end = self._config.sma_perturb_end_update
+        max_perturb = self._config.sma_perturb_km_max
 
+        if current_update < start:
+            new_perturb = 0.0
+        elif current_update >= end:
+            new_perturb = max_perturb
+        else:
+            # Linear interpolation
+            progress = (current_update - start) / (end - start)
+            new_perturb = progress * max_perturb
+        
+        # Print a message only when the value changes
+        if new_perturb > 0 and self.current_sma_perturb_km == 0.0:
+             print(f"\n*** Curriculum: Update {current_update}, starting SMA perturbation ramp-up. ***")
+        
+        if new_perturb > self.current_sma_perturb_km:
+            self.current_sma_perturb_km = new_perturb
+
+    def reset(self, seed=None, options=None):
+        # If debug flag is set, always use the same seed for reset to get a fixed scenario
+        if self._config.use_fixed_seed_for_reset:
+            np.random.seed(42) # Use a fixed seed, e.g., 42
+
+        self.agents = copy(self.possible_agents)
+        base_sma = 42166300.0
+        ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+        
+        # 1. 随机化参考角度，整个场景旋转，保证旋转不变性
+        ta_ref = np.random.uniform(0.0, 2 * np.pi)
+        
         self.states = {}
-        # 均匀分布n个追击方
+        # 2. 生成追击者：带噪声的正多边形
         angle_step = 2 * np.pi / self._config.num_p
+        
         for i in range(self._config.num_p):
             agent_id = f'p_{i}'
-            ta_pur = (ta_ref + i * angle_step) % (2 * np.pi)
+            # 加入 +/- 15度 (0.26 rad) 的噪声，打破完美对称
+            noise = np.random.uniform(-0.26, 0.26) 
+            ta_pur = (ta_ref + i * angle_step + noise) % (2 * np.pi)
+
+            # Apply SMA perturbation if enabled by curriculum
+            current_sma = base_sma
+            if self.current_sma_perturb_km > 0:
+                perturbation_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+                current_sma += perturbation_m
+            
             self.states[agent_id] = self._orbit_lib.coe2rv(np.array([
-                sma, ecc, inc, raan, argp, ta_pur
+                current_sma, ecc, inc, raan, argp, ta_pur
             ]))
         
+        # 3. 生成逃逸者：基于“最近距离”的拒绝采样
         for i in range(self._config.num_e):
             agent_id = f'e_{i}'
-            # 确保逃跑方初始位置与最近追击方的距离在 (dist_cap + e_init_dist_min_offset, dist_cap + e_init_dist_max_offset) 的动态范围内
-            while True:
-                ta_eva = (ta_ref + np.random.uniform(low=-0.5, high=0.5)) % (2 * np.pi)
-                eva_state = self._orbit_lib.coe2rv(np.array([
-                    sma, ecc, inc, raan, argp, ta_eva
-                ]))
+            
+            valid_spawn = False
+            attempt_count = 0
+            
+            while not valid_spawn:
+                # 完全随机角度
+                ta_eva = np.random.uniform(0.0, 2 * np.pi)
 
-                min_dist = float('inf')
-                for j in range(self._config.num_p):
-                    dist = np.linalg.norm(eva_state[:3] - self.states[f'p_{j}'][:3])
-                    if dist < min_dist:
-                        min_dist = dist
+                # Apply SMA perturbation if enabled by curriculum
+                current_sma = base_sma
+                if self.current_sma_perturb_km > 0:
+                    perturbation_m = np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+                    current_sma += perturbation_m
+
+                eva_state = self._orbit_lib.coe2rv(np.array([
+                    current_sma, ecc, inc, raan, argp, ta_eva
+                ]))
                 
-                # 检查与最近的追击方的距离是否在 (dist_cap + e_init_dist_min_offset, dist_cap + e_init_dist_max_offset) 范围内
-                if min_dist > self._config.dist_cap + self._config.e_init_dist_min_offset and min_dist < self._config.dist_cap + self._config.e_init_dist_max_offset:
+                # 计算到所有追击者的距离
+                dists = [np.linalg.norm(eva_state[:3] - self.states[f'p_{j}'][:3]) for j in range(self._config.num_p)]
+                min_dist = min(dists)
+                
+                # 核心逻辑：距离控制
+                # 确保逃跑方初始位置与最近追击方的距离在 (dist_cap + min_offset, dist_cap + max_offset) 的动态范围内
+                min_limit = self._config.dist_cap + self._config.e_init_dist_min_offset
+                max_limit = self._config.dist_cap + self._config.e_init_dist_max_offset
+                
+                # 为了防止死循环（比如追击者太散了找不到合适位置），加个保底
+                if (min_limit < min_dist < max_limit) or attempt_count > 100:
                     self.states[agent_id] = eva_state
-                    break
+                    valid_spawn = True
+                
+                attempt_count += 1
 
         self._time = self._config.init_utc
         

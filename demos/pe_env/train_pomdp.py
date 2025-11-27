@@ -373,6 +373,9 @@ reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}
     obs, infos = env.reset()
     
     for update in range(start_update, num_updates + 1):
+        # --- Update curriculum ---
+        env.update_curriculum(update)
+
         # --- 新增：熵系数退火逻辑 ---
         if cfg.anneal_ent:
             anneal_start_update = cfg.ent_anneal_start_frac * num_updates

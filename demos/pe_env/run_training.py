@@ -22,7 +22,7 @@ from demos.pe_env.train_pomdp import train, TrainConfig
 NEW_REWARD_DEFAULTS = {
     # --- 奖励 ---
     "lambert_reward_weight": 0.05,
-    "reward_dist_weight": 0.04,
+    "reward_dist_weight": 0.008,
     "reward_time_weight": 0.01,
     "reward_formation_weight": 0.04,
     "reward_fuel_weight": 0.005,
@@ -102,6 +102,10 @@ def main():
     curriculum_parser.add_argument("--p_init_dv_decrement", type=float, default=TrainConfig.p_init_dv_decrement, help="燃料的缩减量")
     curriculum_parser.add_argument("--min_dist_cap", type=float, default=TrainConfig.min_dist_cap, help="最小捕获距离")
     curriculum_parser.add_argument("--min_p_init_dv", type=float, default=TrainConfig.min_p_init_dv, help="最小燃料")
+    # SMA Perturbation Curriculum
+    curriculum_parser.add_argument("--sma_perturb_start_update", type=int, default=MPEEnvCfg.sma_perturb_start_update, help="The update count to start SMA perturbation curriculum.")
+    curriculum_parser.add_argument("--sma_perturb_end_update", type=int, default=MPEEnvCfg.sma_perturb_end_update, help="The update count to end SMA perturbation curriculum.")
+    curriculum_parser.add_argument("--sma_perturb_km_max", type=float, default=MPEEnvCfg.sma_perturb_km_max, help="The maximum SMA perturbation in kilometers.")
 
     # --- 通用与杂项 ---
     misc_parser.add_argument("--seed", type=int, default=TrainConfig.seed, help="随机种子")
@@ -110,6 +114,7 @@ def main():
     misc_parser.add_argument("--debug_rewards", type=lambda x: (str(x).lower() == 'true'), default=False, help="是否打印每一步详细的奖励构成")
     misc_parser.add_argument("--debug_critic", type=lambda x: (str(x).lower() == 'true'), default=False, help="是否打印Critic诊断信息")
     misc_parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="从指定的检查点文件路径恢复训练")
+    misc_parser.add_argument("--use-fixed-reset", type=lambda x: (str(x).lower() == 'true'), default=MPEEnvCfg.use_fixed_seed_for_reset, help="[Debug] If true, each episode starts from the exact same initial positions.")
 
     args = parser.parse_args()
 
@@ -125,6 +130,11 @@ def main():
     env_cfg.lstm_future_len = args.lstm_future_len
     env_cfg.use_lambert_reward = args.use_lambert_reward
     env_cfg.lstm_scheme = args.lstm_scheme
+    env_cfg.use_fixed_seed_for_reset = args.use_fixed_reset
+    # Curriculum
+    env_cfg.sma_perturb_start_update = args.sma_perturb_start_update
+    env_cfg.sma_perturb_end_update = args.sma_perturb_end_update
+    env_cfg.sma_perturb_km_max = args.sma_perturb_km_max
     
     # 填充奖励参数
     env_cfg.lambert_reward_weight = args.lambert_reward_weight
