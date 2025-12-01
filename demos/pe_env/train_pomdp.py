@@ -23,11 +23,11 @@ class TrainConfig:
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_coef: float = 0.2
-    ent_coef: float = 0.01
+    ent_coef: float = 0.001
     vf_coef: float = 0.5
     anneal_ent: bool = True  # 是否对熵系数进行退火
     ent_anneal_start_frac: float = 0.3  # 从总训练步数的哪个百分比开始退火
-    final_ent_coef: float = 0.001  # 熵系数最终衰减到的值
+    final_ent_coef: float = 0.0001  # 熵系数最终衰减到的值
     sl_coef: float = 0.5  # 监督学习损失的权重
     lr: float = 3e-4
     sl_lr: float = 5e-4 # LSTM的学习率
@@ -112,7 +112,7 @@ class ActorCritic(nn.Module):
             action_mean = self.actor_head(h)
         else:
             action_mean = self.actor_net(obs)
-        clipped_logstd = torch.clamp(self.actor_logstd, -20, 2)
+        clipped_logstd = torch.clamp(self.actor_logstd, -2, 1)
         action_std = torch.exp(clipped_logstd).expand_as(action_mean)
         probs = torch.distributions.Normal(action_mean, action_std)
         if action is None:
@@ -212,10 +212,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
 
     # 将所有生效的参数保存到文件中
     params_path = run_dir / "all_params.txt"
-    with open(params_path, "w") as f:
-        f.write("--- All Run Parameters ---\\n")
+    with open(params_path, "w", encoding="utf-8") as f:
+        f.write("--- All Run Parameters ---\n")
         for key, value in sorted(all_params.items()):
-            f.write(f"{key}: {value}\\n")
+            f.write(f"{key}: {value}\n")
     print(f"All run parameters saved to {params_path}")
 
     shutdown_requested = False
@@ -236,12 +236,12 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
 
     env = MPE_POMDP_Env(env_cfg)
     
-    current_episode_length = cfg.initial_episode_length
+    curriculum_max_episode_length = cfg.initial_episode_length
     current_dist_cap = cfg.initial_dist_cap
     current_p_init_dv = cfg.initial_p_init_dv
-    env.set_difficulty_parameters(episode_length=current_episode_length, dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
+    env.set_difficulty_parameters(episode_length=curriculum_max_episode_length, dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
     print(f"POMDP Mode: {env_cfg.use_partial_obs}, Obs Interval: {env_cfg.obs_interval}")
-    print(f"任务时长固定: {current_episode_length}s, 初始捕获距离: {current_dist_cap}m, 初始燃料: {current_p_init_dv}m/s")
+    print(f"任务时长固定: {curriculum_max_episode_length}s, 初始捕获距离: {current_dist_cap}m, 初始燃料: {current_p_init_dv}m/s")
 
     pursuer_ids = [f'p_{i}' for i in range(env_cfg.num_p)]
     evader_ids = [f'e_{i}' for i in range(env_cfg.num_e)]
@@ -275,19 +275,19 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         lstm_optimizer.load_state_dict(checkpoint['lstm_optimizer_state_dict'])
         start_update = checkpoint['update'] + 1
         global_step = checkpoint['global_step']
-        current_episode_length = checkpoint.get('current_episode_length', cfg.initial_episode_length)
+        curriculum_max_episode_length = checkpoint.get('current_episode_length', cfg.initial_episode_length)
         current_dist_cap = checkpoint.get('current_dist_cap', cfg.initial_dist_cap)
         current_p_init_dv = checkpoint.get('current_p_init_dv', cfg.initial_p_init_dv)
-        env.set_difficulty_parameters(episode_length=current_episode_length, dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
+        env.set_difficulty_parameters(episode_length=curriculum_max_episode_length, dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
         print(f"Resumed at update {start_update}, global_step {global_step}")
-        print(f"Resumed difficulty: Ep_Len={current_episode_length}, Dist_Cap={current_dist_cap}, Fuel={current_p_init_dv}")
+        print(f"Resumed difficulty: Ep_Len={curriculum_max_episode_length}, Dist_Cap={current_dist_cap}, Fuel={current_p_init_dv}")
 
     num_updates = cfg.total_timesteps // (cfg.num_steps * cfg.num_envs)
     
     recent_episode_stats = deque(maxlen=cfg.curriculum_check_episodes) 
     
     current_episode_return = 0.0
-    current_episode_length = 0
+    ep_len_counter = 0
     current_episode_components = {}
 
     obs, infos = env.reset() 
@@ -312,7 +312,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         for step in range(cfg.num_steps):
 
             global_step += 1
-            current_episode_length += 1
+            ep_len_counter += 1
             
             pursuer_obs_list = [torch.Tensor(obs[name]).to(cfg.device) for name in pursuer_ids]
             pursuer_obs_tensor = torch.stack(pursuer_obs_list)
@@ -350,9 +350,9 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                     stats = final_info.get('episode_statistics', {})
                     if stats: recent_episode_stats.append(stats)
                     
-                    print(f"G_Step:{global_step}, Ep_Done, Reason:{final_info.get('termination_reason', 'Unknown')}, Ep_Return:{current_episode_return:.2f}, Ep_Len:{current_episode_length}")
+                    print(f"G_Step:{global_step}, Ep_Done, Reason:{final_info.get('termination_reason', 'Unknown')}, Ep_Return:{current_episode_return:.2f}, Ep_Len:{ep_len_counter}")
                     writer.add_scalar("charts/episodic_return", current_episode_return, global_step)
-                    writer.add_scalar("charts/episodic_length", current_episode_length, global_step)
+                    writer.add_scalar("charts/episodic_length", ep_len_counter, global_step)
 
                     if cfg.debug_critic and current_episode_components:
                         print(f"--- Episode End Breakdown ---")
@@ -362,7 +362,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
 
                 obs, infos = env.reset() 
                 current_episode_return = 0.0
-                current_episode_length = 0
+                ep_len_counter = 0
                 current_episode_components = {}
 
         with torch.no_grad():
@@ -433,7 +433,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         if cfg.debug_critic:
-            print("\\n" + "-" * 30)
+            print("\n" + "-" * 30)
             print(f"--- Critic Diagnosis (Update {update}) ---")
             print(f"Values (Pred) | Mean: {y_pred.mean():.4f}, Std: {y_pred.std():.4f}, Range: [{y_pred.min():.4f}, {y_pred.max():.4f}]")
             print(f"Returns (True)| Mean: {y_true.mean():.4f}, Std: {y_true.std():.4f}, Range: [{y_true.min():.4f}, {y_true.max():.4f}]")
@@ -462,14 +462,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
 
         if (update % cfg.checkpoint_interval == 0) or shutdown_requested:
             checkpoint_path = checkpoint_dir / f"update_{update}.pt"
-            print(f"\\nSaving checkpoint to {checkpoint_path}...")
+            print(f"\nSaving checkpoint to {checkpoint_path}...")
             torch.save({
                 'update': update,
                 'global_step': global_step,
                 'agent_state_dict': agent.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'lstm_optimizer_state_dict': lstm_optimizer.state_dict(),
-                'current_episode_length': current_episode_length,
+                'current_episode_length': curriculum_max_episode_length,
                 'current_dist_cap': current_dist_cap,
                 'current_p_init_dv': current_p_init_dv,
             }, checkpoint_path)

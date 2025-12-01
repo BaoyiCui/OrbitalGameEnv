@@ -325,22 +325,30 @@ class MPEEnv(PEEnv):
 
     def step(self, actions: Dict[str, np.ndarray]):
         """重写step方法,支持终止条件分类和课程学习统计"""
+        # 如果开启调试模式，则强制将逃逸者动作置零
+        if self._config.disable_evader_maneuvers:
+            for evader_id in self.evader_ids:
+                if evader_id in actions:
+                    actions[evader_id] = np.zeros(3)
+
         for a in self.agents:
             if a.startswith('p_'):
                 dv_step = self._config.p_dv_step
             else:
                 dv_step = self._config.e_dv_step
 
-            if np.linalg.norm(actions[a]) > dv_step:
-                actions[a] = actions[a] / np.linalg.norm(actions[a]) * dv_step
+            # 确保动作在合理范围内
+            action = actions.get(a, np.zeros(3))
+            if np.linalg.norm(action) > dv_step:
+                action = action / np.linalg.norm(action) * dv_step
 
-            if np.linalg.norm(actions[a]) > self.remain_Dvs[a]:
-                actions[a] = actions[a] / np.linalg.norm(actions[a]) * self.remain_Dvs[a]
+            if np.linalg.norm(action) > self.remain_Dvs[a]:
+                action = action / np.linalg.norm(action) * self.remain_Dvs[a]
 
-            self.states[a][3:] += actions[a]
-            self.remain_Dvs[a] -= np.linalg.norm(actions[a])
+            self.states[a][3:] += action
+            self.remain_Dvs[a] -= np.linalg.norm(action)
 
-            #防止除法误差使evader的剩余燃料变负,否则后面无法运行
+            # 防止除法误差使燃料变为负数
             self.remain_Dvs[a]=max(0,self.remain_Dvs[a])
 
         for a in self.agents:
@@ -356,14 +364,12 @@ class MPEEnv(PEEnv):
         observations = self._get_observations()
         rewards, debug_reward_info = self._get_rewards(actions)
         
-        # 获取终止原因
         terminations, termination_reasons = self._get_terminations()
         truncations = self._get_truncations()
 
         self.terminations = terminations
         self.truncations = truncations
 
-        # 更新课程学习统计信息
         if any(terminations.values()):
             self.episode_statistics['total_episodes'] += 1
             reason = list(termination_reasons.values())[0] if termination_reasons else 'unknown'
@@ -372,24 +378,21 @@ class MPEEnv(PEEnv):
                 self.episode_statistics['success_count'] += 1
             elif reason == 'timeout':
                 self.episode_statistics['timeout_count'] += 1
-                # 为超时给追击方添加惩罚
                 for a in self.agents:
                     if a.startswith('p_'):
                         rewards[a] += self._config.reward_timeout_penalty
             elif reason == 'fuel_out':
                 self.episode_statistics['fuelout_count'] += 1
-                # 为燃料耗尽给追击方添加惩罚
                 for a in self.agents:
                     if a.startswith('p_'):
                         rewards[a] += self._config.reward_fuelout_penalty
             
-            # 更新成功率
-            self.episode_statistics['success_rate'] = (
-                self.episode_statistics['success_count'] / self.episode_statistics['total_episodes']
-            )
+            if self.episode_statistics['total_episodes'] > 0:
+                self.episode_statistics['success_rate'] = (
+                    self.episode_statistics['success_count'] / self.episode_statistics['total_episodes']
+                )
 
         self.infos = {a: {} for a in self.agents}
-        # 将终止原因和奖励分量添加到info中
         for agent_id in self.agents:
             self.infos[agent_id]['termination_reason'] = termination_reasons.get(agent_id, None)
             self.infos[agent_id]['episode_statistics'] = self.episode_statistics.copy()
@@ -398,7 +401,8 @@ class MPEEnv(PEEnv):
 
         for agent in list(self.agents):
             if terminations.get(agent, False) or truncations.get(agent, False):
-                self.infos[agent]['final_observation'] = observations[agent]
+                if agent in observations:
+                    self.infos[agent]['final_observation'] = observations[agent]
                 self.agents.remove(agent)
 
         return observations, rewards, self.terminations, self.truncations, self.infos

@@ -17,6 +17,7 @@ from copy import copy
 class PEEnvCfg:
     evader_policy_type: str = "None"  # 可选项 "random", "RL"
     use_fixed_seed_for_reset: bool = False # [调试开关] 若为True，则每回合都从固定的初始位置开始
+    disable_evader_maneuvers: bool = False # [调试开关] 若为True，则关闭逃逸者机动，仅随轨道漂移
 
     # SMA扰动课程学习
     sma_perturb_start_update: int = 500    # SMA扰动开始的更新轮次
