@@ -38,14 +38,22 @@ class MPE_POMDP_Env(MPEEnv):
     """
     继承自MPEEnv
     """
+    @staticmethod
+    def _symlog(x):
+        """对称对数函数，用于归一化。"""
+        return np.sign(x) * np.log(np.abs(x) + 1.0)
+
+    @staticmethod
+    def _inv_symlog(y):
+        """对称对数函数的逆函数。"""
+        return np.sign(y) * (np.exp(np.abs(y)) - 1.0)
+
     def __init__(self, config: MPE_POMDP_EnvCfg = MPE_POMDP_EnvCfg()):
         # 首先调用父类的构造函数
         super().__init__(config)
         self._config: MPE_POMDP_EnvCfg = config
 
-        # 添加归一化参数
-        self.position_scale = 1e7  # 10000 km, 
-        self.velocity_scale = 1e4  # 10 km/s
+        # 移除了固定的归一化参数，将使用symlog
 
         self.lstm_model = None
         self.device = None 
@@ -78,13 +86,6 @@ class MPE_POMDP_Env(MPEEnv):
                 else:
                     self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=(6,))
 
-    def normalize_state(self, state: np.ndarray) -> np.ndarray:
-        """归一化状态数据"""
-        normalized = state.copy()
-        normalized[:3] /= self.position_scale
-        normalized[3:] /= self.velocity_scale
-        return normalized
-
     def set_policy_lstm(self, lstm_model: TrajectoryPredictor):
         self.lstm_model = lstm_model
         try:
@@ -103,7 +104,7 @@ class MPE_POMDP_Env(MPEEnv):
             for evader_id in [f'e_{i}' for i in range(self._config.num_e)]:
                 self.evader_history_buffers[evader_id].clear()
                 if evader_id in self.states:
-                    initial_state_normalized = self.normalize_state(self.states[evader_id])
+                    initial_state_normalized = self._symlog(self.states[evader_id])
                     for _ in range(self._config.lstm_history_len):
                         self.evader_history_buffers[evader_id].append(initial_state_normalized)
                     
@@ -111,7 +112,7 @@ class MPE_POMDP_Env(MPEEnv):
                     if self._config.lstm_scheme == 2:
                         self.virtual_star_states[evader_id] = np.copy(self.states[evader_id])
                         self.virtual_star_history_buffers[evader_id].clear()
-                        vs_initial_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                        vs_initial_state_normalized = self._symlog(self.virtual_star_states[evader_id])
                         for _ in range(self._config.lstm_history_len):
                             self.virtual_star_history_buffers[evader_id].append(vs_initial_state_normalized)
 
@@ -227,8 +228,8 @@ class MPE_POMDP_Env(MPEEnv):
                 my_pos = my_state[:3]
                 my_vel = my_state[3:]
                 
-                # 归一化自身状态
-                obs_components.append(self.normalize_state(my_state))
+                # 使用 symlog 归一化自身状态
+                obs_components.append(self._symlog(my_state))
                 # 归一化自身燃料
                 obs_components.append(np.array([all_fuels[agent_id] / self._config.p_init_dv]))
 
@@ -237,11 +238,11 @@ class MPE_POMDP_Env(MPEEnv):
                     evader_id = f'e_{i}'
                     evader_current_pos = all_states.get(evader_id, np.zeros(6))[:3]
                     
-                    # 获取LSTM预测的、归一化的、相对于逃逸者当前位置的位移
-                    norm_rel_to_evader_prediction = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)
+                    # 获取LSTM预测的、symlog归一化的、相对于逃逸者当前位置的位移
+                    symlog_rel_to_evader_prediction = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)
                     
                     # 将其反归一化为真实的物理位移（米）
-                    real_rel_to_evader_prediction = norm_rel_to_evader_prediction.cpu().numpy() * self.position_scale
+                    real_rel_to_evader_prediction = self._inv_symlog(symlog_rel_to_evader_prediction.cpu().numpy())
                     
                     # 加上逃逸者当前绝对位置，得到预测的未来绝对位置
                     abs_prediction = real_rel_to_evader_prediction + evader_current_pos
@@ -249,8 +250,8 @@ class MPE_POMDP_Env(MPEEnv):
                     # 减去追击者当前绝对位置，得到追击者视角的相对位置
                     rel_to_pursuer_prediction = abs_prediction - my_pos
                     
-                    # 对这个最终用于观测的相对位置再次归一化
-                    obs_components.append((rel_to_pursuer_prediction / self.position_scale).flatten())
+                    # 对这个最终用于观测的相对位置再次使用 symlog 归一化
+                    obs_components.append(self._symlog(rel_to_pursuer_prediction).flatten())
 
                 # --- 3. 队友信息 (每个队友 7维) ---
                 other_pursuer_info = []
@@ -262,11 +263,11 @@ class MPE_POMDP_Env(MPEEnv):
                             other_pos = other_state[:3]
                             other_vel = other_state[3:]
                             
-                            # A. 相对位置 (归一化)
-                            rel_pos = (other_pos - my_pos) / self.position_scale
+                            # A. 相对位置 (symlog归一化)
+                            rel_pos = self._symlog(other_pos - my_pos)
                             
-                            # B. 相对速度 (归一化) 
-                            rel_vel = (other_vel - my_vel) / self.velocity_scale
+                            # B. 相对速度 (symlog归一化) 
+                            rel_vel = self._symlog(other_vel - my_vel)
                             
                             # C. 队友剩余燃料 (归一化) 
                             other_fuel = all_fuels[pursuer_id] / self._config.p_init_dv
@@ -284,8 +285,8 @@ class MPE_POMDP_Env(MPEEnv):
 
                 observations[agent_id] = np.concatenate(obs_components)
             else:
-                # 逃逸者自身的观测也归一化
-                observations[agent_id] = self.normalize_state(self.states[agent_id])
+                # 逃逸者自身的观测也使用 symlog 归一化
+                observations[agent_id] = self._symlog(self.states[agent_id])
         
         return observations
 
@@ -302,28 +303,39 @@ class MPE_POMDP_Env(MPEEnv):
             
             # 存入buffer的都是归一化之后的状态
             if self.obs_counters[evader_id] % self._config.obs_interval == 0:
-                true_state_normalized = self.normalize_state(self.states[evader_id])
+                true_state_normalized = self._symlog(self.states[evader_id])
                 history_buffer.append(true_state_normalized)
                 if self._config.lstm_scheme == 2:
-                    vs_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                    vs_state_normalized = self._symlog(self.virtual_star_states[evader_id])
                     self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
             else:
                 # 基于归一化数据的伪观测
                 if len(history_buffer) > 0:
-                    norm_rel_disp = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)[0].cpu().numpy()
-                    prev_norm_state = history_buffer[-1]
-                    next_norm_pos = prev_norm_state[:3] + norm_rel_disp
-                    estimated_norm_vel = (next_norm_pos - prev_norm_state[:3]) / (self._config.dt / self.velocity_scale * self.position_scale)
-                    pseudo_state_normalized = np.concatenate([next_norm_pos, estimated_norm_vel])
+                    # 1. 获取预测的symlog位移和上一时刻的symlog状态
+                    pred_symlog_delta_pos = self.pursuer_predictions[evader_id].reshape(self._config.lstm_future_len, 3)[0].cpu().numpy()
+                    prev_symlog_state = history_buffer[-1]
+                    
+                    # 2. 反解为真实物理值
+                    pred_real_delta_pos = self._inv_symlog(pred_symlog_delta_pos)
+                    prev_real_state = self._inv_symlog(prev_symlog_state)
+                    
+                    # 3. 在真实物理空间中计算伪观测
+                    next_real_pos = prev_real_state[:3] + pred_real_delta_pos
+                    estimated_real_vel = (next_real_pos - prev_real_state[:3]) / self._config.dt
+                    pseudo_real_state = np.concatenate([next_real_pos, estimated_real_vel])
+                    
+                    # 4. 将计算出的伪观测状态再次symlog后存入历史
+                    pseudo_state_normalized = self._symlog(pseudo_real_state)
                     history_buffer.append(pseudo_state_normalized)
+
                     if self._config.lstm_scheme == 2:
                         if len(self.virtual_star_history_buffers[evader_id]) > 0:
                             self.virtual_star_history_buffers[evader_id].append(self.virtual_star_history_buffers[evader_id][-1])
                         else:
-                            vs_state_normalized = self.normalize_state(self.virtual_star_states[evader_id])
+                            vs_state_normalized = self._symlog(self.virtual_star_states[evader_id])
                             self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
                 else: 
-                     history_buffer.append(self.normalize_state(self.states[evader_id]))
+                     history_buffer.append(self._symlog(self.states[evader_id]))
 
             if len(history_buffer) > 0:
                 history_abs_normalized = np.array(list(history_buffer))
@@ -348,8 +360,8 @@ class MPE_POMDP_Env(MPEEnv):
             for step in range(self._config.lstm_future_len):
                 current_sim_time = self._time + datetime.timedelta(seconds=(step + 1) * self._config.dt)
                 _, temp_e_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in)
-                relative_displacement_normalized = (temp_e_state[:3] - current_e_pos) / self.position_scale
-                future_gt_traj_normalized.append(relative_displacement_normalized)
+                relative_displacement = temp_e_state[:3] - current_e_pos
+                future_gt_traj_normalized.append(self._symlog(relative_displacement))
             
             # 准备用于存储在buffer中的监督学习数据
             sl_history_input = np.array(list(history_buffer))
