@@ -23,13 +23,13 @@ NEW_REWARD_DEFAULTS = {
     # --- 奖励 ---
     "lambert_reward_weight": 0.05,
     "reward_dist_weight": 0.1,      # 稍微降低距离权重，避免过度贪婪
-    "reward_time_weight": 0.01,
+    "reward_time_weight": 0.03,
     "reward_formation_weight": 0.04,
-    "reward_fuel_weight": 0.05,     # [重要] 提高单步燃料惩罚 (原0.005 -> 0.05)，提高10倍
+    "reward_fuel_weight": 0.03,     # [重要] 单步燃料惩罚 
     "reward_advantage_weight": 0.002,
     "capture_reward": 30.0,         # 适当提高成功奖励，保持正负激励平衡
-    "reward_timeout_penalty": -5,   # 超时也给惩罚，迫使它在省油和快速之间权衡
-    "reward_fuelout_penalty": -15.0, # [重要] 加大燃料耗尽惩罚 (原-5 -> -15)，让它比抓捕失败更痛
+    "reward_timeout_penalty": -15,   # 超时也给惩罚，迫使它在省油和快速之间权衡
+    "reward_fuelout_penalty": -15, # [重要] 加大燃料耗尽惩罚 
 }
 
 def main():
