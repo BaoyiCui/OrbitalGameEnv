@@ -45,7 +45,7 @@ class TrainConfig:
     p_init_dv_decrement: float = 100.0
     min_dist_cap: float = 30e3
     min_p_init_dv: float = 200.0
-    debug_critic: bool = False # 是否打印Critic诊断信息
+    debug_critic: bool = False 
     resume_from_checkpoint: str = None # 从指定检查点恢复训练
     checkpoint_interval: int = 50 # 每隔N个update保存一次检查点
     seed: int = 42
@@ -210,8 +210,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     run_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(str(run_dir))
 
-    # 将所有生效的参数保存到文件中
+    # 定义日志文件路径
     params_path = run_dir / "all_params.txt"
+    progress_path = run_dir / "curriculum_progress_log.txt"
+
     with open(params_path, "w", encoding="utf-8") as f:
         f.write("--- All Run Parameters ---\n")
         for key, value in sorted(all_params.items()):
@@ -283,6 +285,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         print(f"Resumed difficulty: Ep_Len={curriculum_max_episode_length}, Dist_Cap={current_dist_cap}, Fuel={current_p_init_dv}")
 
     num_updates = cfg.total_timesteps // (cfg.num_steps * cfg.num_envs)
+
+    # --- 学习率退火参数 ---
+    anneal_lr_start_update = 500  # 从第500个Update开始退火
+    final_lr_fraction = 0.1       # 最终学习率降为初始值的10%
     
     recent_episode_stats = deque(maxlen=cfg.curriculum_check_episodes) 
     
@@ -295,6 +301,27 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     for update in range(start_update, num_updates + 1):
         env.update_curriculum(update)
 
+        # --- 学习率退火逻辑 ---
+        if update < anneal_lr_start_update:
+            # 阶段一: 保持恒定学习率
+            current_lr = cfg.lr
+        else:
+            # 阶段二: 线性衰减
+            decay_steps = num_updates - anneal_lr_start_update
+            progress = (update - anneal_lr_start_update) / decay_steps
+            progress = min(1.0, max(0.0, progress))
+            
+            lr_decay_factor = 1.0 - (1.0 - final_lr_fraction) * progress
+            current_lr = cfg.lr * lr_decay_factor
+
+        # 应用新学习率到优化器
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = current_lr
+            
+        # 记录到 TensorBoard
+        writer.add_scalar("charts/learning_rate", current_lr, global_step)
+
+        # --- 熵系数退火逻辑 ---
         if cfg.anneal_ent:
             anneal_start_update = cfg.ent_anneal_start_frac * num_updates
             if update < anneal_start_update:
@@ -506,6 +533,25 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                         if changed:
                             env.set_difficulty_parameters(dist_cap=current_dist_cap, p_init_dv=current_p_init_dv)
                             print(f"*** 课程学习: 成功率 {current_success_rate:.2f}, 提升难度 -> 新捕获距离:{current_dist_cap}m, 新燃料:{current_p_init_dv}m/s ***")
+                            
+                            # --- 记录课程学习进度 ---
+                            file_exists = os.path.exists(progress_path)
+                            with open(progress_path, "a", encoding="utf-8") as f:
+                                if not file_exists:
+                                    f.write("--- Curriculum Progress Log ---\
+\n")
+                                f.write(f"--- Update: {update} | Global Step: {global_step} ---\
+")
+                                f.write(f"Trigger Success Rate: {current_success_rate:.2f}\
+")
+                                f.write(f"New Capture Distance Cap (m): {current_dist_cap}\
+")
+                                f.write(f"New Pursuer Initial Fuel (m/s): {current_p_init_dv}\
+")
+                                f.write("---------------------------------------------------\
+\n")
+                            print(f"Curriculum progress logged to {progress_path}")
+
                             recent_episode_stats.clear()
 
     env.close()

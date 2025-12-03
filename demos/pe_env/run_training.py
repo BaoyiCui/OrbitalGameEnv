@@ -28,7 +28,7 @@ NEW_REWARD_DEFAULTS = {
     "reward_fuel_weight": 0.03,     # [重要] 单步燃料惩罚 
     "reward_advantage_weight": 0.002,
     "capture_reward": 30.0,         # 适当提高成功奖励，保持正负激励平衡
-    "reward_timeout_penalty": -15,   # 超时也给惩罚，迫使它在省油和快速之间权衡
+    "reward_timeout_penalty": -12,   # 超时也给惩罚，迫使它在省油和快速之间权衡
     "reward_fuelout_penalty": -15, # [重要] 加大燃料耗尽惩罚 
 }
 
