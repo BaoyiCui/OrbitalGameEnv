@@ -215,7 +215,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     progress_path = run_dir / "curriculum_progress_log.txt"
 
     with open(params_path, "w", encoding="utf-8") as f:
-        f.write("--- All Run Parameters ---\n")
+        f.write("--- All Run Parameters ---")
         for key, value in sorted(all_params.items()):
             f.write(f"{key}: {value}\n")
     print(f"All run parameters saved to {params_path}")
@@ -224,10 +224,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     def signal_handler(sig, frame):
         nonlocal shutdown_requested
         if not shutdown_requested:
-            print("\\nCtrl+C received! Finishing current update and saving checkpoint...")
+            print("\nCtrl+C received! Finishing current update and saving checkpoint...")
             shutdown_requested = True
         else:
-            print("\\nSecond Ctrl+C received! Forcing exit.")
+            print("\nSecond Ctrl+C received! Forcing exit.")
             sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -297,9 +297,32 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     current_episode_components = {}
 
     obs, infos = env.reset() 
+    last_sma_perturb_km = env.current_sma_perturb_km # 跟踪SMA扰动值以记录变化
     
     for update in range(start_update, num_updates + 1):
         env.update_curriculum(update)
+
+        # --- 记录SMA扰动课程学习进度 ---
+        if env.current_sma_perturb_km > last_sma_perturb_km:
+            print(f"*** 课程学习: SMA扰动提升 -> 新扰动: {env.current_sma_perturb_km:.2f} km ***")
+            file_exists = os.path.exists(progress_path)
+            with open(progress_path, "a", encoding="utf-8") as f:
+                if not file_exists:
+                    f.write("--- Curriculum Progress Log ---\n")
+                    f.write("Abbreviations:\n")
+                    f.write("  U: Update\n")
+                    f.write("  GS: Global Step\n")
+                    f.write("  Trig: Trigger Type (SR=Success Rate, SMA=SMA Perturbation)\n")
+                    f.write("  SR_trig: Trigger Success Rate\n")
+                    f.write("  DistCap: New Capture Distance Cap (m)\n")
+                    f.write("  Fuel: New Pursuer Initial Fuel (m/s)\n")
+                    f.write("  SMA_km: New SMA Perturbation (km)\n\n")
+                f.write("--------------------------------------------------\n")
+                f.write(f"U: {update} | GS: {global_step}\n")
+                f.write(f"Trig: SMA\n")
+                f.write(f"SMA_km: {env.current_sma_perturb_km:.2f}\n")
+            print(f"Curriculum progress logged to {progress_path}")
+            last_sma_perturb_km = env.current_sma_perturb_km # 更新跟踪值
 
         # --- 学习率退火逻辑 ---
         if update < anneal_lr_start_update:
@@ -538,18 +561,21 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                             file_exists = os.path.exists(progress_path)
                             with open(progress_path, "a", encoding="utf-8") as f:
                                 if not file_exists:
-                                    f.write("--- Curriculum Progress Log ---\
-\n")
-                                f.write(f"--- Update: {update} | Global Step: {global_step} ---\
-")
-                                f.write(f"Trigger Success Rate: {current_success_rate:.2f}\
-")
-                                f.write(f"New Capture Distance Cap (m): {current_dist_cap}\
-")
-                                f.write(f"New Pursuer Initial Fuel (m/s): {current_p_init_dv}\
-")
-                                f.write("---------------------------------------------------\
-\n")
+                                    f.write("--- Curriculum Progress Log ---\n")
+                                    f.write("Abbreviations:\n")
+                                    f.write("  U: Update\n")
+                                    f.write("  GS: Global Step\n")
+                                    f.write("  Trig: Trigger Type (SR=Success Rate, SMA=SMA Perturbation)\n")
+                                    f.write("  SR_trig: Trigger Success Rate\n")
+                                    f.write("  DistCap: New Capture Distance Cap (m)\n")
+                                    f.write("  Fuel: New Pursuer Initial Fuel (m/s)\n")
+                                    f.write("  SMA_km: New SMA Perturbation (km)\n\n")
+                                f.write("--------------------------------------------------\n")
+                                f.write(f"U: {update} | GS: {global_step}\n")
+                                f.write(f"Trig: SR\n")
+                                f.write(f"SR_trig: {current_success_rate:.2f}\n")
+                                f.write(f"DistCap: {current_dist_cap}\n")
+                                f.write(f"Fuel: {current_p_init_dv}\n")
                             print(f"Curriculum progress logged to {progress_path}")
 
                             recent_episode_stats.clear()
@@ -557,7 +583,6 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     env.close()
     writer.close()
     print("训练完成!")
-
 
 
 if __name__ == "__main__":

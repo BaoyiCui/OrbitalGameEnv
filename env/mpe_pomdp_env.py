@@ -109,7 +109,7 @@ class MPE_POMDP_Env(MPEEnv):
                         self.evader_history_buffers[evader_id].append(initial_state_normalized)
                     
                     # 为方案2重置虚拟星状态和历史
-                    if self._config.lstm_scheme == 2:
+                    if self._config.lstm_scheme in [2, 3]:
                         self.virtual_star_states[evader_id] = np.copy(self.states[evader_id])
                         self.virtual_star_history_buffers[evader_id].clear()
                         vs_initial_state_normalized = self._symlog(self.virtual_star_states[evader_id])
@@ -305,7 +305,7 @@ class MPE_POMDP_Env(MPEEnv):
             if self.obs_counters[evader_id] % self._config.obs_interval == 0:
                 true_state_normalized = self._symlog(self.states[evader_id])
                 history_buffer.append(true_state_normalized)
-                if self._config.lstm_scheme == 2:
+                if self._config.lstm_scheme in [2, 3]:
                     vs_state_normalized = self._symlog(self.virtual_star_states[evader_id])
                     self.virtual_star_history_buffers[evader_id].append(vs_state_normalized)
             else:
@@ -328,7 +328,7 @@ class MPE_POMDP_Env(MPEEnv):
                     pseudo_state_normalized = self._symlog(pseudo_real_state)
                     history_buffer.append(pseudo_state_normalized)
 
-                    if self._config.lstm_scheme == 2:
+                    if self._config.lstm_scheme in [2, 3]:
                         if len(self.virtual_star_history_buffers[evader_id]) > 0:
                             self.virtual_star_history_buffers[evader_id].append(self.virtual_star_history_buffers[evader_id][-1])
                         else:
@@ -341,7 +341,7 @@ class MPE_POMDP_Env(MPEEnv):
                 history_abs_normalized = np.array(list(history_buffer))
                 input_data_for_lstm = history_abs_normalized
 
-                if self._config.lstm_scheme == 2:
+                if self._config.lstm_scheme in [2, 3]:
                     vs_history_normalized = np.array(list(self.virtual_star_history_buffers[evader_id]))
                     if len(vs_history_normalized) == len(history_abs_normalized):
                         input_data_for_lstm = history_abs_normalized - vs_history_normalized
@@ -357,11 +357,29 @@ class MPE_POMDP_Env(MPEEnv):
             current_e_pos = self.states[evader_id][:3]
             temp_e_state = np.copy(self.states[evader_id])
             future_gt_traj_normalized = []
+
+            # 如果是 Scheme 2 或 3，我们也需要推演虚拟星的未来
+            if self._config.lstm_scheme in [2, 3]:
+                temp_vs_state = np.copy(self.virtual_star_states[evader_id])
+
             for step in range(self._config.lstm_future_len):
                 current_sim_time = self._time + datetime.timedelta(seconds=(step + 1) * self._config.dt)
+                
+                # 1. 推演逃逸者真实位置
                 _, temp_e_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_e_state, self._config.dt, self._config.hpop_in)
-                relative_displacement = temp_e_state[:3] - current_e_pos
-                future_gt_traj_normalized.append(self._symlog(relative_displacement))
+                
+                target_displacement = None
+                if self._config.lstm_scheme == 1:
+                    # Scheme 1 标签: 相对当前时刻位置的位移
+                    target_displacement = temp_e_state[:3] - current_e_pos
+                    
+                elif self._config.lstm_scheme in [2, 3]:
+                    # Scheme 2/3 标签: 真实位置 - 虚拟星的未来位置 (即：预测偏差)
+                    _, temp_vs_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_vs_state, self._config.dt, self._config.hpop_in)
+                    target_displacement = temp_e_state[:3] - temp_vs_state[:3]
+                
+                if target_displacement is not None:
+                    future_gt_traj_normalized.append(self._symlog(target_displacement))
             
             # 准备用于存储在buffer中的监督学习数据
             sl_history_input = np.array(list(history_buffer))
