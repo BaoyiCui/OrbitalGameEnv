@@ -5,10 +5,12 @@ debug_critic: False
 debug_rewards: False
 device: cuda
 dist_cap_decrement: 1000.0
+e_dv_step: 0.5
 e_init_dist_max_offset: 100000.0
 e_init_dist_min_offset: 50000.0
 ent_anneal_start_frac: 0.3
 ent_coef: 0.001
+evader_policy_level: 2
 final_ent_coef: 0.0001
 gae_lambda: 0.95
 gamma: 0.99
@@ -21,7 +23,7 @@ lstm_future_len: 10
 lstm_history_len: 20
 lstm_scheme: 2
 min_dist_cap: 30000.0
-min_p_init_dv: 250.0
+min_p_init_dv: 300.0
 num_e: 1
 num_envs: 1
 num_mini_batches: 4
@@ -37,7 +39,7 @@ reward_fuel_weight: 0.03
 reward_fuelout_penalty: -15
 reward_time_weight: 0.03
 reward_timeout_penalty: -12
-run_name: Dec 6th:new lstm 2--disable-evader-maneuvers false 
+run_name: Dec 6th: APF
 seed: 42
 sl_coef: 0.5
 sl_lr: 0.0005

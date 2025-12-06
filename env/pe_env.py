@@ -15,9 +15,12 @@ from copy import copy
 
 @dataclass
 class PEEnvCfg:
-    evader_policy_type: str = "None"  # 可选项 "random", "RL"
+    evader_policy_type: str = "Scripted"  # "None", "random", "RL", "Scripted"
+    # 0: 无机动 (Drift), 1: 随机机动 (Random), 2: 势场法逃逸 (APF)
+    evader_policy_level: int = 0
+    apf_repulsion_weight: float = 1.0e6  # 斥力系数
+
     use_fixed_seed_for_reset: bool = False # [调试开关] 若为True，则每回合都从固定的初始位置开始
-    disable_evader_maneuvers: bool = False # [调试开关] 若为True，则关闭逃逸者机动，仅随轨道漂移
 
     # SMA扰动课程学习
     sma_perturb_start_update: int = 500    # SMA扰动开始的更新轮次

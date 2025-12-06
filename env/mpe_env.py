@@ -129,6 +129,82 @@ class MPEEnv(PEEnv):
         
         return observations
 
+    def _get_apf_action(self, evader_id):
+        """
+        计算势场法动作: 逃逸者受到所有追捕者的反向斥力
+        """
+        if evader_id not in self.states:
+            return np.zeros(3)
+
+        e_pos = self.states[evader_id][:3]
+        total_force = np.zeros(3)
+        
+        # 遍历所有存活的追捕者
+        active_pursuers = [pid for pid in self.pursuer_ids if pid in self.states]
+        
+        # 如果没有追捕者了，就随机动或者不动
+        if not active_pursuers:
+            return np.zeros(3)
+
+        for p_id in active_pursuers:
+            p_pos = self.states[p_id][:3]
+            diff_vec = e_pos - p_pos
+            dist = np.linalg.norm(diff_vec)
+            
+            # 防止除以零
+            if dist < 1.0: 
+                dist = 1.0
+            
+            # 斥力公式: 方向远离追捕者，大小与距离平方成反比
+            # Force = k * (1/r^2) * unit_vec
+            force_vec = (diff_vec / dist) / (dist ** 2)
+            total_force += force_vec
+            
+        # 计算合力方向
+        force_magnitude = np.linalg.norm(total_force)
+        
+        if force_magnitude < 1e-9:
+            # 极小力情况下（例如极其完美的对称包围），随机选择一个方向突围
+            action_dir = np.random.randn(3)
+            action_dir /= np.linalg.norm(action_dir)
+        else:
+            action_dir = total_force / force_magnitude
+            
+        # 输出动作：最大机动能力 * 方向
+        action = action_dir * self._config.e_dv_step
+        
+        return action
+
+    def get_evader_actions(self):
+        """
+        根据配置的 evader_policy_level 生成逃逸者的动作字典
+        Level 0: 无机动 (Drift)
+        Level 1: 随机机动 (Random)
+        Level 2: 势场法 (APF)
+        """
+        actions = {}
+        # 遍历所有存活的逃逸者
+        active_evaders = [eid for eid in self.evader_ids if eid in self.agents]
+        
+        for e_id in active_evaders:
+            if self._config.evader_policy_level == 0:
+                # 模式 0: 自由漂浮
+                actions[e_id] = np.zeros(3)
+                
+            elif self._config.evader_policy_level == 1:
+                # 模式 1: 随机机动
+                actions[e_id] = self.action_spaces[e_id].sample()
+                
+            elif self._config.evader_policy_level == 2:
+                # 模式 2: 势场法逃逸
+                actions[e_id] = self._get_apf_action(e_id)
+            
+            else:
+                # 默认随机
+                actions[e_id] = self.action_spaces[e_id].sample()
+                
+        return actions
+
     def _get_rewards(self, actions: Dict[str, np.ndarray]):
         rewards = {a: 0.0 for a in self.agents}
         debug_reward_info = {agent_id: {} for agent_id in self.pursuer_ids if agent_id in self.agents}
@@ -325,12 +401,6 @@ class MPEEnv(PEEnv):
 
     def step(self, actions: Dict[str, np.ndarray]):
         """重写step方法,支持终止条件分类和课程学习统计"""
-        # 如果开启调试模式，则强制将逃逸者动作置零
-        if self._config.disable_evader_maneuvers:
-            for evader_id in self.evader_ids:
-                if evader_id in actions:
-                    actions[evader_id] = np.zeros(3)
-
         for a in self.agents:
             if a.startswith('p_'):
                 dv_step = self._config.p_dv_step

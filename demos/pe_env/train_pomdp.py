@@ -372,7 +372,8 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 actions_tensor, log_prob, _, values = agent.get_action_and_value(pursuer_obs_tensor, central_obs_tensor.unsqueeze(0))
                 values = values.flatten()
 
-            evader_actions = {name: env.action_spaces[name].sample() for name in evader_ids}
+            # 获取逃逸者动作（支持 0:Drift, 1:Random, 2:APF）
+            evader_actions = env.get_evader_actions()
             actions_to_step = {name: actions_tensor[i].cpu().numpy() for i, name in enumerate(pursuer_ids)}
             actions_to_step.update(evader_actions)
 

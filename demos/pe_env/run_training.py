@@ -55,6 +55,9 @@ def main():
     env_parser.add_argument("--use_partial_obs", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_partial_obs, help="是否使用部分可观测环境")
     env_parser.add_argument("--obs_interval", type=int, default=MPE_POMDP_EnvCfg.obs_interval, help="在POMDP中，每隔多少步进行一次真实观测")
     env_parser.add_argument("--use_lambert_reward", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_lambert_reward, help="是否使用Lambert引导奖励 (总开关)")
+    env_parser.add_argument("--evader_policy_level", type=int, default=MPEEnvCfg.evader_policy_level, choices=[0, 1, 2], 
+                            help="逃逸者策略等级: 0=无机动, 1=随机, 2=势场法(APF)")
+    env_parser.add_argument("--e_dv_step", type=float, default=MPEEnvCfg.e_dv_step, help="逃逸方每次机动的最大速度增量 (m/s)")
 
     # --- 模型结构配置 ---
     model_parser.add_argument("--use_encoder", type=lambda x: (str(x).lower() == 'true'), default=TrainConfig.use_encoder, help="是否在Actor网络中使用Attention Encoder")
@@ -115,7 +118,6 @@ def main():
     misc_parser.add_argument("--debug_critic", type=lambda x: (str(x).lower() == 'true'), default=False, help="是否打印Critic诊断信息")
     misc_parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="从指定的检查点文件路径恢复训练")
     misc_parser.add_argument("--use-fixed-reset", type=lambda x: (str(x).lower() == 'true'), default=MPEEnvCfg.use_fixed_seed_for_reset, help="[调试] 若为True, 则每回合都从固定的初始位置开始")
-    misc_parser.add_argument("--disable-evader-maneuvers", type=lambda x: (str(x).lower() == 'true'), default=MPEEnvCfg.disable_evader_maneuvers, help="[调试] 若为True, 则关闭逃逸者机动，仅随轨道漂移")
 
     args = parser.parse_args()
 
@@ -132,7 +134,8 @@ def main():
     env_cfg.use_lambert_reward = args.use_lambert_reward
     env_cfg.lstm_scheme = args.lstm_scheme
     env_cfg.use_fixed_seed_for_reset = args.use_fixed_reset
-    env_cfg.disable_evader_maneuvers = args.disable_evader_maneuvers
+    env_cfg.evader_policy_level = args.evader_policy_level
+    env_cfg.e_dv_step = args.e_dv_step
     # Curriculum
     env_cfg.sma_perturb_start_update = args.sma_perturb_start_update
     env_cfg.sma_perturb_end_update = args.sma_perturb_end_update
