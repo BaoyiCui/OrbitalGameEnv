@@ -38,11 +38,11 @@ class TrainConfig:
     num_envs: int = 1
     initial_episode_length: int = 3600 * 10
     curriculum_check_episodes: int = 50
-    success_rate_threshold: float = 0.7
+    success_rate_threshold: float = 0.78
     initial_dist_cap: float = 60e3
     initial_p_init_dv: float = 200.0
     dist_cap_decrement: float = 1e3
-    p_init_dv_decrement: float = 100.0
+    p_init_dv_decrement: float = 20.0
     min_dist_cap: float = 30e3
     min_p_init_dv: float = 200.0
     debug_critic: bool = False 
@@ -300,7 +300,20 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     last_sma_perturb_km = env.current_sma_perturb_km # 跟踪SMA扰动值以记录变化
     
     for update in range(start_update, num_updates + 1):
-        env.update_curriculum(update)
+        # --- [新] SMA扰动课程学习逻辑（从env中移入） ---
+        start = env_cfg.sma_perturb_start_update
+        end = env_cfg.sma_perturb_end_update
+        max_perturb = env_cfg.sma_perturb_km_max
+
+        if update < start:
+            new_perturb = 0.0
+        elif update >= end:
+            new_perturb = max_perturb
+        else:
+            progress = (update - start) / (end - start)
+            new_perturb = progress * max_perturb
+        
+        env.set_sma_perturb(new_perturb)
 
         # --- 记录SMA扰动课程学习进度 ---
         if env.current_sma_perturb_km > last_sma_perturb_km:
