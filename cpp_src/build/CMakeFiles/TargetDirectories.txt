@@ -1,0 +1,3 @@
+/home/star/Downloads/gemini-cli-main/OrbitalGameEnv/cpp_src/build/CMakeFiles/lambert_solver.dir
+/home/star/Downloads/gemini-cli-main/OrbitalGameEnv/cpp_src/build/CMakeFiles/edit_cache.dir
+/home/star/Downloads/gemini-cli-main/OrbitalGameEnv/cpp_src/build/CMakeFiles/rebuild_cache.dir
