@@ -21,8 +21,7 @@ from demos.pe_env.train_pomdp import train, TrainConfig
 # ==================================================================
 NEW_REWARD_DEFAULTS = {
     # --- 奖励 ---
-    "lambert_reward_weight": 0.05,
-    "reward_dist_weight": 0.03,   
+    "reward_phase_dist_weight": 1.0, # 新的相位距离奖励的权重
     "reward_time_weight": 0.02,
     "reward_formation_weight": 0.04,
     "reward_fuel_weight": 0.02,     # 单步燃料惩罚 
@@ -52,7 +51,6 @@ def main():
     env_parser.add_argument("--num_e", type=int, default=MPE_POMDP_EnvCfg.num_e, help="逃逸者(evader)的数量")
     env_parser.add_argument("--use_partial_obs", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_partial_obs, help="是否使用部分可观测环境")
     env_parser.add_argument("--obs_interval", type=int, default=MPE_POMDP_EnvCfg.obs_interval, help="在POMDP中，每隔多少步进行一次真实观测")
-    env_parser.add_argument("--use_lambert_reward", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_lambert_reward, help="是否使用Lambert引导奖励 (总开关)")
     env_parser.add_argument("--evader_policy_level", type=int, default=MPEEnvCfg.evader_policy_level, choices=[0, 1, 2], 
                             help="逃逸者策略等级: 0=无机动, 1=随机, 2=势场法(APF)")
     env_parser.add_argument("--e_dv_step", type=float, default=MPEEnvCfg.e_dv_step, help="逃逸方每次机动的最大速度增量 (m/s)")
@@ -61,8 +59,7 @@ def main():
     model_parser.add_argument("--history_len", type=int, default=MPE_POMDP_EnvCfg.history_len, help="Transformer输入序列的历史长度")
 
     # --- 奖励权重配置 ---
-    reward_parser.add_argument("--lambert_reward_weight", type=float, default=NEW_REWARD_DEFAULTS.get('lambert_reward_weight', MPE_POMDP_EnvCfg.lambert_reward_weight), help="引导奖励：Lambert引导奖励的权重")
-    reward_parser.add_argument("--reward_dist_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_dist_weight', MPEEnvCfg.reward_dist_weight), help="基础奖励：距离权重")
+    reward_parser.add_argument("--reward_phase_dist_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_phase_dist_weight', MPEEnvCfg.reward_phase_dist_weight), help="[新] 相位/距离混合奖励的权重")
     reward_parser.add_argument("--reward_time_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_time_weight', MPEEnvCfg.reward_time_weight), help="基础奖励：时间惩罚权重")
     reward_parser.add_argument("--reward_formation_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_formation_weight', MPEEnvCfg.reward_formation_weight), help="基础奖励：群体形成奖励权重")
     reward_parser.add_argument("--reward_fuel_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_fuel_weight', MPEEnvCfg.reward_fuel_weight), help="基础奖励：燃料消耗惩罚权重")
@@ -129,7 +126,6 @@ def main():
     env_cfg.use_partial_obs = args.use_partial_obs
     env_cfg.obs_interval = args.obs_interval
     env_cfg.history_len = args.history_len # 使用新的参数
-    env_cfg.use_lambert_reward = args.use_lambert_reward
     env_cfg.use_fixed_seed_for_reset = args.use_fixed_seed_for_reset
     env_cfg.evader_policy_level = args.evader_policy_level
     env_cfg.e_dv_step = args.e_dv_step
@@ -139,8 +135,7 @@ def main():
     env_cfg.sma_perturb_km_max = args.sma_perturb_km_max
     
     # 填充奖励参数
-    env_cfg.lambert_reward_weight = args.lambert_reward_weight
-    env_cfg.reward_dist_weight = args.reward_dist_weight
+    env_cfg.reward_phase_dist_weight = args.reward_phase_dist_weight
     env_cfg.reward_time_weight = args.reward_time_weight
     env_cfg.reward_formation_weight = args.reward_formation_weight
     env_cfg.reward_fuel_weight = args.reward_fuel_weight
@@ -195,8 +190,7 @@ def main():
     if args.debug_rewards:
         print("\n" + "-" * 30)
         print("--- Initial Reward Weights ---")
-        print(f"  lambert_reward_weight: {env_cfg.lambert_reward_weight}")
-        print(f"  reward_dist_weight: {env_cfg.reward_dist_weight}")
+        print(f"  reward_phase_dist_weight: {env_cfg.reward_phase_dist_weight}")
         print(f"  reward_time_weight: {env_cfg.reward_time_weight}")
         print(f"  reward_formation_weight: {env_cfg.reward_formation_weight}")
         print(f"  reward_fuel_weight: {env_cfg.reward_fuel_weight}")

@@ -436,6 +436,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
             hist_tensor = torch.stack(env_hist_batch).to(cfg.device)
             mask_tensor = torch.stack(env_mask_batch).to(cfg.device)
             
+            # [新增] 调试观测信息
+            if cfg.debug_observation and ((global_step - cfg.num_envs) // 200 < global_step // 200):
+                print(f"\n--- Debug Observation at Step ~{global_step} (p_0, env_0) ---")
+                print(f"  - Student Obs: {obs_tensor[0, 0].cpu().numpy().tolist()}")
+                print(f"  - History Input (shape): {hist_tensor[0, 0].shape}")
+                print(f"  - History Mask (sum): {mask_tensor[0, 0].sum().item()}")
+                print("----------------------------------------------------")
+            
             # --- 2. Inference (Batch Processing) ---
             with torch.no_grad():
                 # 此时输入包含 num_envs 维度，需要小心处理
@@ -469,6 +477,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 action_dict.update(env.get_evader_actions())
                 
                 next_o, rew, term, trunc, next_i = env.step(action_dict)
+                
+                # [修改] 打印详细奖励
+                if env_cfg.debug_rewards: # 打印所有环境的信息
+                    p0_info = next_i.get(pursuer_ids[0])
+                    if p0_info and 'reward_components' in p0_info:
+                        rew_info = p0_info['reward_components']
+                        rew_str = ", ".join([f"{k}: {v:.3f}" for k, v in rew_info.items()])
+                        print(f"Upd {update}, Step {step}, Env {i}, p0 Rewards: {rew_str}")
                 
                 # 记录数据
                 p_rewards = np.array([rew[pid] for pid in pursuer_ids])
