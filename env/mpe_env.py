@@ -259,7 +259,6 @@ class MPEEnv(PEEnv):
         capture_occurred = min(dists_to_evader) < self._config.dist_cap
 
         # --- 3. 过程优势诱导奖励 (r_adv) 优化版 ---
-        # 基于论文 4.4.1 节逻辑进行平滑处理
         num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
         future_rewards = {a: 0.0 for a in self.pursuer_ids}
         
@@ -273,37 +272,57 @@ class MPEEnv(PEEnv):
             
             for i, agent_id in enumerate(self.pursuer_ids):
                 if agent_id in self.agents:
-                    temp_p_state = np.copy(self.states[agent_id])
+                    # --- [优化版] 相对距离缩减奖励 (Relative Gap Closing) ---
+                    # 1. 获取当前时刻的绝对距离 (Baseline)
+                    # 注意：必须使用 copy 避免影响环境真实状态
+                    curr_p_pos = self.states[agent_id][:3]
+                    curr_e_pos = self.states[self.evader_ids[0]][:3]
+                    current_dist = np.linalg.norm(curr_p_pos - curr_e_pos)
                     
-                    min_future_dist = float('inf')
-                    min_step_idx = num_future_steps
+                    # 2. 寻找未来的最小距离 (Future Min)
+                    min_future_dist = current_dist # 初始化为当前距离
+                    intercept_step_idx = num_future_steps # 初始化为最晚时间
                     
+                    # 运行预测
+                    temp_p_state = np.copy(self.states[agent_id]) # 临时变量
                     for step in range(num_future_steps):
                         current_sim_time = self._time + datetime.timedelta(seconds=step * self._config.dt)
                         _, temp_p_state = self._orbit_lib.orbit_hpop(current_sim_time, temp_p_state, self._config.dt, self._config.hpop_in)
                         
+                        # 计算预测距离
+                        # 注意：这里用的是之前预存的 future_e_traj，减少重复计算
                         dist = np.linalg.norm(temp_p_state[:3] - future_e_traj[step])
                         
                         if dist < min_future_dist:
                             min_future_dist = dist
-                            min_step_idx = step
+                            intercept_step_idx = step
                     
-                    dist_threshold = self._config.dist_cap
+                    # 3. 计算相对缩减率 (Gap Closing Ratio)
+                    # 逻辑：(当前距离 - 预测最小距离) / 当前距离
+                    # 范围：[0.0, 1.0]
+                    # 如果预测距离比当前还大，max(0, ...) 会将其截断为 0
                     
-                    norm_time = min_step_idx / num_future_steps 
-                    time_discount = np.exp(-2.0 * norm_time)
-
-                    if min_future_dist < dist_threshold:
-                        dist_advantage = (dist_threshold - min_future_dist) / dist_threshold
-                        radv = 1.0 + dist_advantage + time_discount
-                        
+                    dist_improvement = current_dist - min_future_dist
+                    
+                    # 防止分母为0的极小值保护
+                    safe_current_dist = max(current_dist, 1.0) 
+                    
+                    gap_closing_score = max(0.0, dist_improvement) / safe_current_dist
+                    
+                    # 4. 时间效率因子 (Time Factor)
+                    # 越早达到最小距离，分数越高。线性衰减。
+                    # 范围：[0.2, 1.0] (保留 0.2 底分防止抹杀远距离拦截)
+                    norm_time = intercept_step_idx / num_future_steps
+                    time_factor = 1.0 - 0.8 * norm_time
+                    
+                    # 5. 最终合成
+                    # 只有当有缩减(score>0)时，时间因子才生效
+                    if gap_closing_score > 0:
+                        r_adv = self._config.reward_advantage_weight * gap_closing_score * time_factor
                     else:
-                        miss_ratio = min_future_dist / dist_threshold
-                        penalty = np.log(miss_ratio) 
-                        radv = -1.0 * penalty * 0.5
-                        radv = max(radv, -2.0)
-
-                    future_rewards[agent_id] = self._config.reward_advantage_weight * radv
+                        r_adv = 0.0 # 轨迹发散，严厉惩罚（给0分）
+                    
+                    future_rewards[agent_id] = r_adv
 
         # 分配总奖励
         for i, agent_id in enumerate(self.pursuer_ids):
@@ -348,6 +367,11 @@ class MPEEnv(PEEnv):
                     reward_str = ", ".join([f"{k}: {v:.4f}" for k, v in reward_data.items()])
                     print(f"  Agent {agent_id}: {reward_str}")
             print("------------------------------------")
+
+        # --- Reward Scaling ---
+        scale_factor = 10.0
+        for agent_id in rewards:
+            rewards[agent_id] /= scale_factor
 
         return rewards, debug_reward_info
 

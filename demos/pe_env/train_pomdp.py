@@ -100,7 +100,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class HRG_ActorCritic(nn.Module):
-    def __init__(self, env_cfg: MPE_POMDP_EnvCfg, act_dim: int, priv_obs_dim: int):
+    def __init__(self, env_cfg: MPE_POMDP_EnvCfg, act_dim: int, priv_obs_dim: int, student_obs_dim: int):
         super().__init__()
         
         d_model = 128
@@ -118,7 +118,8 @@ class HRG_ActorCritic(nn.Module):
         # Obs 结构: [Self | Target | Teammates]
         # 注意: 这里的维度需要与环境中的观测空间定义严格对应
         self.student_enc = HRG_Student_Encoder(
-            env_cfg, 
+            env_cfg,
+            student_obs_dim=student_obs_dim,
             self_input_dim=8, 
             target_input_dim=3,   # <--- 必须是 3，根据环境的观测空间定义 (仅位置)
             teammate_input_dim=7, 
@@ -338,11 +339,19 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     # 获取维度信息
     pursuer_ids = [f'p_{i}' for i in range(env_cfg.num_p)]
     evader_ids = [f'e_{i}' for i in range(env_cfg.num_e)]
+    # 动态获取 Student 观测维度 (已包含新增的轨道特征)
     student_obs_dim = envs[0].observation_spaces[pursuer_ids[0]].shape[0]
-    priv_obs_dim = (env_cfg.num_p + env_cfg.num_e) * 6
+    
+    # === [修改] 计算 Privileged Observation 维度 ===
+    # 结构: [Anchor(6)] + [(Num_P + Num_E - 1) * (Rel_State(6) + Orb_Feat(3))]
+    # 假设 Num_E = 1 (Anchor), 那么其余所有 Agent (Num_P) 都有 9 维特征
+    # 如果有多个 Evader，除 Anchor 外的 Evader 也有 9 维
+    num_others = env_cfg.num_p + (env_cfg.num_e - 1)
+    priv_obs_dim = 6 + num_others * 9 
+    
     act_dim = envs[0].action_spaces[pursuer_ids[0]].shape[0]
 
-    agent = HRG_ActorCritic(env_cfg, act_dim, priv_obs_dim).to(cfg.device)
+    agent = HRG_ActorCritic(env_cfg, act_dim, priv_obs_dim, student_obs_dim).to(cfg.device)
     
     hls_params, other_params = [], []
     for name, param in agent.named_parameters():
@@ -474,14 +483,16 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 if any_done:
                     # 记录统计
                     final_info = next(iter(next_i.values()), None)
-                    if final_info and 'episode_statistics' in final_info:
-                        stats = final_info['episode_statistics']
-                        recent_episode_stats.append(stats)
-                        
-                        writer.add_scalar(f"charts/ep_return_env_{i}", current_ep_returns[i], global_step)
-                        # 为了减少日志刷屏，只打印部分
-                        if i == 0:
-                            print(f"Upd {update}, Env {i}: Ret={current_ep_returns[i]:.2f}, Len={current_ep_lens[i]}, Reason={final_info.get('termination_reason')}")
+                    if final_info:
+                        # [修改点 A] 不再存储累计字典，而是记录单次成功与否 (1.0 或 0.0)
+                        is_success = final_info.get('termination_reason') == 'capture_success'
+                        recent_episode_stats.append(1.0 if is_success else 0.0)
+
+                        if 'episode_statistics' in final_info:
+                            writer.add_scalar(f"charts/ep_return_env_{i}", current_ep_returns[i], global_step)
+                            # 为了减少日志刷屏，只打印部分
+                            if i == 0:
+                                print(f"Upd {update}, Env {i}: Ret={current_ep_returns[i]:.2f}, Len={current_ep_lens[i]}, Reason={final_info.get('termination_reason')}")
                     
                     next_o, next_i = env.reset()
                     current_ep_returns[i] = 0.0
@@ -567,62 +578,58 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         writer.add_scalar("charts/entropy_coef", current_ent_coef, global_step)
 
         # === [关键修改] 鲁棒的课程学习逻辑 ===
-        if len(recent_episode_stats) >= 10:
-            last_stats = recent_episode_stats[-1]
-            first_stats = recent_episode_stats[0]
-            if last_stats['total_episodes'] > first_stats['total_episodes']:
-                diff_eps = last_stats['total_episodes'] - first_stats['total_episodes']
-                diff_succ = last_stats['success_count'] - first_stats['success_count']
-                current_sr = diff_succ / diff_eps if diff_eps > 0 else 0.0
-                writer.add_scalar("charts/success_rate", current_sr, global_step)
+        # [修改点 B] 采用滑动平均值计算成功率，避免多环境数据混淆
+        if len(recent_episode_stats) >= cfg.curriculum_check_episodes:
+            current_sr = np.mean(recent_episode_stats)
+            writer.add_scalar("charts/success_rate", current_sr, global_step)
 
-                # --- 1. 升级逻辑 (增加 Stability 检查) ---
-                if current_sr >= cfg.success_rate_threshold:
-                    curriculum_stability_counter += 1
-                else:
-                    curriculum_stability_counter = 0 # 中断则重置
+            # --- 1. 升级逻辑 (增加 Stability 检查) ---
+            if current_sr >= cfg.success_rate_threshold:
+                curriculum_stability_counter += 1
+            else:
+                curriculum_stability_counter = 0 # 中断则重置
+            
+            # 只有连续 N 次达标才升级
+            if curriculum_stability_counter >= cfg.curriculum_stability_required:
+                changed = False
+                if current_m < cfg.target_m:
+                    current_m = min(current_m + cfg.m_increment, cfg.target_m)
+                    changed = True
+                if current_p_init_dv > cfg.min_p_init_dv:
+                    current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
+                    changed = True
+                if current_dist_cap > cfg.min_dist_cap:
+                    current_dist_cap = max(current_dist_cap - cfg.dist_cap_decrement, cfg.min_dist_cap)
+                    changed = True
                 
-                # 只有连续 N 次达标才升级
-                if curriculum_stability_counter >= cfg.curriculum_stability_required:
-                    changed = False
-                    if current_m < cfg.target_m:
-                        current_m = min(current_m + cfg.m_increment, cfg.target_m)
-                        changed = True
-                    if current_p_init_dv > cfg.min_p_init_dv:
-                        current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
-                        changed = True
-                    if current_dist_cap > cfg.min_dist_cap:
-                        current_dist_cap = max(current_dist_cap - cfg.dist_cap_decrement, cfg.min_dist_cap)
-                        changed = True
-                    
-                    if changed:
-                        print(f"\n*** [UPGRADE] SR={current_sr:.2f} (Stable {curriculum_stability_counter}). New: m={current_m}, Fuel={current_p_init_dv} ***")
-                        # 应用到所有环境
-                        for env in envs:
-                            env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv, dist_cap=current_dist_cap)
-                        recent_episode_stats.clear()
-                        curriculum_stability_counter = 0 # 升级后重置计数
-                        
-                        # 记录日志
-                        with open(progress_path, "a") as f:
-                            f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tUPGRADE\n")
-
-                # --- 2. 降级逻辑 (救命回退) ---
-                elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
-                    print(f"\n!!! [ROLLBACK] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
-                    
-                    # 回退操作：难度大幅降低
-                    current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
-                    current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
-                    current_dist_cap = min(current_dist_cap + cfg.dist_cap_decrement * 2, cfg.initial_dist_cap)
-                    
+                if changed:
+                    print(f"\n*** [UPGRADE] SR={current_sr:.2f} (Stable {curriculum_stability_counter}). New: m={current_m}, Fuel={current_p_init_dv} ***")
+                    # 应用到所有环境
                     for env in envs:
                         env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv, dist_cap=current_dist_cap)
                     recent_episode_stats.clear()
-                    curriculum_stability_counter = 0
+                    curriculum_stability_counter = 0 # 升级后重置计数
                     
+                    # 记录日志
                     with open(progress_path, "a") as f:
-                            f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tROLLBACK\n")
+                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tUPGRADE\n")
+
+            # --- 2. 降级逻辑 (救命回退) ---
+            elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
+                print(f"\n!!! [ROLLBACK] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
+                
+                # 回退操作：难度大幅降低
+                current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
+                current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
+                current_dist_cap = min(current_dist_cap + cfg.dist_cap_decrement * 2, cfg.initial_dist_cap)
+                
+                for env in envs:
+                    env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv, dist_cap=current_dist_cap)
+                recent_episode_stats.clear()
+                curriculum_stability_counter = 0
+                
+                with open(progress_path, "a") as f:
+                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tROLLBACK\n")
 
     for env in envs: env.close()
     writer.close()

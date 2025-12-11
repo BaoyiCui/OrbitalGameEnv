@@ -88,6 +88,11 @@ class MPE_POMDP_Env(MPEEnv):
         super().__init__(config)
         self._config: MPE_POMDP_EnvCfg = config
 
+        # 注册 RV2COE 函数 (如果 OrbitLib 没封装，我们在这里手动设置一下以防万一)
+        if hasattr(self, '_orbit_lib') and hasattr(self._orbit_lib, 'orbit_lib_c') and self._orbit_lib.orbit_lib_c is not None:
+             self._orbit_lib.orbit_lib_c.RV2COE.argtypes = [ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double)]
+             self._orbit_lib.orbit_lib_c.RV2COE.restype = None
+
         if self._config.use_partial_obs:
             self.evader_history_buffers = {f'e_{i}': deque(maxlen=self._config.history_len) for i in range(self._config.num_e)}
             self.obs_counters = {f'e_{i}': 0 for i in range(self._config.num_e)}
@@ -96,35 +101,84 @@ class MPE_POMDP_Env(MPEEnv):
             self.observation_spaces = {}
             for a in self.possible_agents:
                 if a.startswith('p_'):
-                    # V5 观测空间:
+                    # V5.1 观测空间 (增加相位特征):
                     # 1. 自身 (8维)
-                    # 2. 目标上次已知位置 (3维, LVLH) <--- 新增
+                    # 2. 目标上次已知位置 (3维)
                     # 3. 队友 (7 * (Num_P - 1))
-                    self_obs_dim = 8
-                    target_obs_dim = 3 * self._config.num_e # 这里假设我们把所有逃逸者的上次位置都放进去
-                    teammates_obs_dim = 7 * (self._config.num_p - 1)
+                    # 4. [新增] 相对轨道要素 (3维): [Symlog(Delta_SMA), Sin(Delta_TA), Cos(Delta_TA)]
                     
-                    obs_shape = (self_obs_dim + target_obs_dim + teammates_obs_dim,)
+                    self_obs_dim = 8
+                    target_obs_dim = 3 * self._config.num_e 
+                    teammates_obs_dim = 7 * (self._config.num_p - 1)
+                    orbital_feat_dim = 3 # <--- 新增维度
+                    
+                    obs_shape = (self_obs_dim + target_obs_dim + teammates_obs_dim + orbital_feat_dim,)
                     self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=obs_shape)
                 else:
                     self.observation_spaces[a] = spaces.Box(-np.inf, np.inf, shape=(6,))
 
+    def _get_orbital_features(self, state_p, state_e):
+        """
+        计算追击者相对于逃逸者的轨道要素差异。
+        输入: J2000 状态向量 [x, y, z, vx, vy, vz] (米, 米/秒)
+        输出: np.array([symlog(delta_a), sin(delta_ta), cos(delta_ta)])
+        """
+        # 准备 Ctypes 数据
+        rv_p = np.ascontiguousarray(state_p, dtype=np.float64)
+        rv_e = np.ascontiguousarray(state_e, dtype=np.float64)
+        coe_p = np.zeros(6, dtype=np.float64)
+        coe_e = np.zeros(6, dtype=np.float64)
+
+        # 调用 C++ RV2COE
+        # coe 结构: [sma, ecc, inc, raan, argp, ta] (单位: 米, 弧度)
+        if self._orbit_lib and hasattr(self._orbit_lib, 'orbit_lib_c') and self._orbit_lib.orbit_lib_c is not None:
+            self._orbit_lib.orbit_lib_c.RV2COE(
+                rv_p.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                coe_p.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+            )
+            self._orbit_lib.orbit_lib_c.RV2COE(
+                rv_e.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                coe_e.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+            )
+        else:
+            return np.zeros(3) # 如果库加载失败，返回0
+
+        # --- 1. 半长轴差异 (Delta SMA) ---
+        # 物理意义：决定追击速度（相对漂移率）。
+        # Delta_a < 0 -> 轨道低 -> 周期短 -> 相位增加 -> 追赶前方目标
+        # 数值处理：SMA 差异范围极大(10m - 100km)，使用 Symlog 完美压缩
+        delta_sma = coe_p[0] - coe_e[0]
+        feat_sma = self._symlog(np.array([delta_sma]))
+
+        # --- 2. 相位差异 (Delta True Anomaly) ---
+        # 物理意义：决定两者在圆周上的相对位置。
+        # 数值处理：使用 Sin/Cos 解决 0/2pi 周期突变问题，范围固定在 [-1, 1]
+        delta_ta = coe_p[5] - coe_e[5]
+        feat_sin_ta = np.sin(delta_ta)
+        feat_cos_ta = np.cos(delta_ta)
+
+        return np.concatenate([feat_sma, [feat_sin_ta], [feat_cos_ta]])
+
     def _get_privileged_state(self):
-        """辅助函数：计算基于 Anchor LVLH 的特权观测"""
+        """
+        辅助函数：计算基于 Anchor LVLH 的特权观测。
+        同步增强：为 Teacher 加入轨道要素特征，确保 Teacher 的信息量 >= Student。
+        """
         privileged_components = []
         anchor_id = self.evader_ids[0]
         
         anchor_state = np.zeros(6)
         anchor_dcm = None
 
+        # 1. Anchor (参考系中心) 的绝对状态
         if anchor_id in self.states:
             anchor_state = self.states[anchor_id]
             anchor_dcm = get_lvlh_dcm(anchor_state)
-            # Anchor 自身依然保留 symlog 的绝对状态 (或者改为相对于GEO理想轨道的偏差)
             privileged_components.append(self._symlog(anchor_state))
         else:
             privileged_components.append(np.zeros(6))
 
+        # 2. 遍历其他所有 Agent (追击者 + 其他逃逸者)
         # 顺序：所有追击者 -> 剩余逃逸者
         agent_order = self.pursuer_ids + [eid for eid in self.evader_ids if eid != anchor_id]
         
@@ -132,7 +186,7 @@ class MPE_POMDP_Env(MPEEnv):
             if agent_id in self.states:
                 target_state = self.states[agent_id]
                 
-                # 如果有DCM，则转为LVLH相对；否则使用ECI相对
+                # A. 计算相对状态向量 (LVLH)
                 if anchor_dcm is not None:
                     diff_pos = target_state[:3] - anchor_state[:3]
                     diff_vel = target_state[3:] - anchor_state[3:]
@@ -142,9 +196,15 @@ class MPE_POMDP_Env(MPEEnv):
                 else:
                     rel_state = target_state - anchor_state
                 
-                privileged_components.append(self._symlog(rel_state))
+                # B. [新增] 计算相对轨道要素特征
+                # 这一步至关重要，让 Teacher 也能显式看到相位和能量差异
+                orb_feat = self._get_orbital_features(target_state, anchor_state)
+                
+                # 拼接: [相对位置速度(6), 相对轨道要素(3)]
+                privileged_components.append(np.concatenate([self._symlog(rel_state), orb_feat]))
             else:
-                privileged_components.append(np.zeros(6))
+                # 补零: 6维状态 + 3维轨道特征 = 9维
+                privileged_components.append(np.zeros(9))
         
         return np.concatenate(privileged_components)
 
@@ -275,6 +335,13 @@ class MPE_POMDP_Env(MPEEnv):
         observations = {}
         all_states = {aid: self.states[aid] for aid in self.possible_agents if aid in self.states}
         
+        # 获取首个逃逸者的真实状态用于计算相位（假设它是主要目标）
+        # 注意：这里我们使用真实状态来计算轨道要素差异，模拟星历表推算能力
+        # 即使视野丢失，追击者通常也知道目标的轨道根数（TLE），只是不知道精确机动后的位置
+        primary_evader_state = None
+        if self.evader_ids and self.evader_ids[0] in self.states:
+            primary_evader_state = self.states[self.evader_ids[0]]
+
         for agent_id in self.pursuer_ids:
             if agent_id not in all_states: continue
             
@@ -303,10 +370,14 @@ class MPE_POMDP_Env(MPEEnv):
                         # 可见，或者第一次初始化：计算真实值
                         e_state = all_states[eid]
                         rel_pos, _ = eci_to_lvlh_relative(my_state, e_state[:3], None)
-                        self.agent_memory_evader_lvlh[mem_key] = rel_pos
+                        if rel_pos is not None:
+                            self.agent_memory_evader_lvlh[mem_key] = rel_pos
                     
                     # 取出记忆中的值 (Symlog处理)
-                    target_feat.append(self._symlog(self.agent_memory_evader_lvlh[mem_key]))
+                    if mem_key in self.agent_memory_evader_lvlh:
+                        target_feat.append(self._symlog(self.agent_memory_evader_lvlh[mem_key]))
+                    else:
+                        target_feat.append(np.zeros(3))
                 else:
                     # 如果目标不存在，用零填充
                     target_feat.append(np.zeros(3))
@@ -320,7 +391,10 @@ class MPE_POMDP_Env(MPEEnv):
                         t_state = all_states[tid]
                         rel_pos, rel_vel = eci_to_lvlh_relative(my_state, t_state[:3], t_state[3:])
                         t_fuel = np.array([self.remain_Dvs.get(tid, 0.0) / self._config.p_init_dv])
-                        teammate_data.append(np.concatenate([self._symlog(rel_pos), self._symlog(rel_vel), t_fuel]))
+                        if rel_pos is not None and rel_vel is not None:
+                            teammate_data.append(np.concatenate([self._symlog(rel_pos), self._symlog(rel_vel), t_fuel]))
+                        else:
+                            teammate_data.append(np.zeros(7))
                     else:
                         teammate_data.append(np.zeros(7))
             
@@ -328,6 +402,15 @@ class MPE_POMDP_Env(MPEEnv):
             obs_list = [alt_dev, pos_dir, vel_sym, fuel] + target_feat
             if teammate_data:
                 obs_list.append(np.concatenate(teammate_data))
+
+            # === [新增] 4. 轨道相位特征 ===
+            if primary_evader_state is not None:
+                orbital_features = self._get_orbital_features(my_state, primary_evader_state)
+            else:
+                orbital_features = np.zeros(3)
+            
+            obs_list.append(orbital_features)
+            # ============================
 
             observations[agent_id] = np.concatenate(obs_list)
 

@@ -9,16 +9,17 @@ def symlog(x):
     return torch.sign(x) * torch.log(torch.abs(x) + 1.0)
 
 class HRG_Student_Encoder(nn.Module):
-    def __init__(self, env_cfg, self_input_dim=8, target_input_dim=3, teammate_input_dim=7, hidden_dim=128):
+    def __init__(self, env_cfg, student_obs_dim, self_input_dim=8, target_input_dim=3, teammate_input_dim=7, hidden_dim=128):
         super().__init__()
         self.num_p = env_cfg.num_p
         self.num_teammates = env_cfg.num_p - 1
         self.hidden_dim = hidden_dim
         
-        # Obs = Self(8) + Target(3*Ne) + Teammates(...)
+        self.self_input_dim = self_input_dim
         self.target_obs_dim = target_input_dim * env_cfg.num_e
-        total_obs_dim = self_input_dim + self.target_obs_dim + teammate_input_dim * self.num_teammates
-        self.input_norm = nn.LayerNorm(total_obs_dim)
+        self.teammate_input_dim = teammate_input_dim
+        
+        self.input_norm = nn.LayerNorm(student_obs_dim)
 
         # A. 感知层
         # 1. 自身编码
@@ -46,26 +47,33 @@ class HRG_Student_Encoder(nn.Module):
         obs_normalized = self.input_norm(obs)
 
         # 切分数据
-        # [Self(8) | Target(3*Ne) | Teammates...]
-        idx_self = 8
+        # [Self(8) | Target(3*Ne) | Teammates(7*(Np-1)) | Orbital(3)]
+        idx_self = self.self_input_dim
         idx_target = idx_self + self.target_obs_dim
+        idx_teammates = idx_target + self.teammate_input_dim * self.num_teammates
         
         self_in = obs_normalized[:, :idx_self]
         target_in = obs_normalized[:, idx_self:idx_target]
-        teammates_in = obs_normalized[:, idx_target:].view(batch_size, self.num_teammates, 7)
+        
+        # 确保在没有队友时也能正常工作
+        if self.num_teammates > 0:
+            teammates_in = obs_normalized[:, idx_target:idx_teammates].view(batch_size, self.num_teammates, self.teammate_input_dim)
+            teammate_embs = self.teammate_enc(teammates_in) # [B, Np-1, H]
+            team_context = teammate_embs.mean(dim=1)
+        else:
+            team_context = torch.zeros(batch_size, self.hidden_dim, device=obs.device)
+
+        # orbital_in = obs_normalized[:, idx_teammates:] # 暂时切分出来但未使用
         
         # 编码
         self_emb = self.self_enc(self_in)       # [B, H]
         target_emb = self.target_enc(target_in) # [B, H]
-        teammate_embs = self.teammate_enc(teammates_in) # [B, Np-1, H]
         
         # HLS 逻辑升级
         # 现在的“我”不仅包含燃料状态，还包含我看到的那个残缺的目标位置
         # 这有助于网络判断：如果我看不到目标（Obs是旧的），我是不是该多信一点 History？
         self_context = torch.cat([self_emb, target_emb], dim=-1)
         self_context = F.relu(self.fusion_layer(self_context)) # [B, H]
-        
-        team_context = teammate_embs.mean(dim=1)
         
         Q = self.hls_query(self_context).unsqueeze(1)
         K_team = self.hls_key_team(team_context).unsqueeze(1)
