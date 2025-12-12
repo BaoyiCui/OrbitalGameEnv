@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
-from demos.pe_env.train_pomdp import ActorCritic, TrainConfig
+from demos.pe_env.train_pomdp import HRG_ActorCritic, TrainConfig
 
 def load_checkpoint(path, device):
     """加载模型检查点"""
@@ -162,11 +162,10 @@ def run_eval(args):
     
     env_cfg.num_p = args.num_p if args.num_p is not None else env_cfg.num_p
     env_cfg.num_e = args.num_e
-    train_cfg.use_encoder = args.use_encoder if args.use_encoder is not None else train_cfg.use_encoder
     env_cfg.history_len = args.history_len
     env_cfg.evader_policy_level = args.evader_policy_level
 
-    print(f"Evaluating with: Pursuers={env_cfg.num_p}, Evaders={env_cfg.num_e}, Use Encoder={train_cfg.use_encoder}")
+    print(f"Evaluating with: Pursuers={env_cfg.num_p}, Evaders={env_cfg.num_e}, Evader Policy={env_cfg.evader_policy_level}")
 
     env = MPE_POMDP_Env(env_cfg)
     
@@ -174,10 +173,15 @@ def run_eval(args):
     evader_ids = [f'e_{i}' for i in range(env_cfg.num_e)]
     
     student_obs_dim = env.observation_spaces[pursuer_ids[0]].shape[0]
-    privileged_obs_dim = (env_cfg.num_p + env_cfg.num_e) * 6
+    
+    # Correctly calculate privileged_obs_dim based on train_pomdp.py
+    num_others = env_cfg.num_p + (env_cfg.num_e - 1)
+    privileged_obs_dim = 6 + num_others * 9 
+    
     act_dim = env.action_spaces[pursuer_ids[0]].shape[0]
 
-    model = ActorCritic(student_obs_dim, privileged_obs_dim, act_dim, env_cfg, train_cfg).to(device)
+    # Correct the model class name and instantiation arguments
+    model = HRG_ActorCritic(env_cfg, act_dim, privileged_obs_dim, student_obs_dim).to(device)
     model.load_state_dict(checkpoint['agent_state_dict'])
     model.eval()
     print("Model loaded successfully.")
