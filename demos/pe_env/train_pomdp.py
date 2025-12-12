@@ -593,6 +593,29 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         writer.add_scalar("charts/entropy_coef", current_ent_coef, global_step)
 
+        # [新增] 保存检查点
+        if update % cfg.checkpoint_interval == 0:
+            ckpt_dir = run_dir / "checkpoints"
+            ckpt_dir.mkdir(exist_ok=True)
+            ckpt_path = ckpt_dir / f"ckpt_{update}.pth"
+            
+            checkpoint_data = {
+                'agent_state_dict': agent.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'update': update,
+                'global_step': global_step,
+                'env_cfg': vars(env_cfg),
+                'train_cfg': vars(cfg),
+                'curriculum': {
+                    'current_m': current_m,
+                    'current_dist_cap': current_dist_cap,
+                    'current_p_init_dv': current_p_init_dv,
+                }
+            }
+            
+            torch.save(checkpoint_data, ckpt_path)
+            print(f"--- Checkpoint saved to {ckpt_path} at update {update} ---")
+
         # === [关键修改] 鲁棒的课程学习逻辑 ===
         # [修改点 B] 采用滑动平均值计算成功率，避免多环境数据混淆
         if len(recent_episode_stats) >= cfg.curriculum_check_episodes:
@@ -629,6 +652,13 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                     # 记录日志
                     with open(progress_path, "a") as f:
                         f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tUPGRADE\n")
+
+                # [新增] 早停检查: 无论本次是否升级(changed)，只要满足课程目标就检查
+                if current_m >= cfg.target_m and \
+                   current_p_init_dv <= cfg.min_p_init_dv and \
+                   current_dist_cap <= cfg.min_dist_cap:
+                    print(f"\n--- [EARLY STOPPING] Curriculum target reached at update {update}. Stopping training. ---")
+                    break # 退出主训练循环
 
             # --- 2. 降级逻辑 (救命回退) ---
             elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
