@@ -370,6 +370,23 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         student_obs_dim, priv_obs_dim, act_dim, cfg.device, env_cfg
     )
 
+    # [新增] Ctrl+C 信号处理逻辑
+    sigint_state = {'count': 0, 'update': 0}
+    def sigint_handler(sig, frame):
+        sigint_state['count'] += 1
+        if sigint_state['count'] == 1:
+            print(f"\n[Ctrl+C] 第一次按下。保存当前模型 (update {sigint_state['update']})... 再次按下可强制退出。")
+            ckpt_dir = run_dir / "checkpoints"
+            ckpt_dir.mkdir(exist_ok=True)
+            ckpt_path = ckpt_dir / f"ckpt_interrupt_{sigint_state['update']}.pth"
+            checkpoint_data = { 'agent_state_dict': agent.state_dict(), 'env_cfg': vars(env_cfg) }
+            torch.save(checkpoint_data, ckpt_path)
+            print(f"--- 模型已保存至 {ckpt_path} ---")
+        else:
+            print("\n[Ctrl+C] 第二次按下。强制退出。")
+            sys.exit(0)
+    signal.signal(signal.SIGINT, sigint_handler)
+
     num_updates = cfg.total_timesteps // (cfg.num_steps * cfg.num_envs)
     recent_episode_stats = deque(maxlen=cfg.curriculum_check_episodes)
     curriculum_stability_counter = 0 # [新增] 课程稳定性计数器
@@ -389,6 +406,8 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     global_step = 0
     
     for update in range(1, num_updates + 1):
+        sigint_state['update'] = update # 告知信号处理器当前的 update 数
+
         # === [关键修改] 学习率衰减 (Linear Annealing) ===
         if cfg.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates
@@ -676,6 +695,15 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 
                 with open(progress_path, "a") as f:
                         f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tROLLBACK\n")
+
+    # [新增] 保存训练完成的最终模型
+    print(f"\n--- 训练结束于 update {update}。保存最终模型... ---")
+    ckpt_dir = run_dir / "checkpoints"
+    ckpt_dir.mkdir(exist_ok=True)
+    ckpt_path = ckpt_dir / f"ckpt_final_{update}.pth"
+    checkpoint_data = { 'agent_state_dict': agent.state_dict(), 'env_cfg': vars(env_cfg) }
+    torch.save(checkpoint_data, ckpt_path)
+    print(f"--- 最终模型已保存至 {ckpt_path} ---")
 
     for env in envs: env.close()
     writer.close()
