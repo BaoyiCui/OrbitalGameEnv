@@ -49,6 +49,7 @@ def main():
     # --- 环境与观测配置 ---
     env_parser.add_argument("--num_p", type=int, default=MPE_POMDP_EnvCfg.num_p, help="追捕者(pursuer)的数量")
     env_parser.add_argument("--num_e", type=int, default=MPE_POMDP_EnvCfg.num_e, help="逃逸者(evader)的数量")
+    env_parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="环境维度模式: 2=2D (默认), 3=3D")
     env_parser.add_argument("--use_partial_obs", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_partial_obs, help="是否使用部分可观测环境")
     env_parser.add_argument("--obs_interval", type=int, default=MPE_POMDP_EnvCfg.obs_interval, help="在POMDP中，每隔多少步进行一次真实观测")
     env_parser.add_argument("--evader_policy_level", type=int, default=MPEEnvCfg.evader_policy_level, choices=[0, 1, 2], 
@@ -125,6 +126,7 @@ def main():
     env_cfg.num_e = args.num_e
     env_cfg.use_partial_obs = args.use_partial_obs
     env_cfg.obs_interval = args.obs_interval
+    env_cfg.dim_mode = args.dim_mode
     env_cfg.history_len = args.history_len # 使用新的参数
     env_cfg.use_fixed_seed_for_reset = args.use_fixed_seed_for_reset
     env_cfg.evader_policy_level = args.evader_policy_level

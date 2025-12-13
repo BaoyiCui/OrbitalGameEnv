@@ -261,28 +261,59 @@ class MPE_POMDP_Env(MPEEnv):
         if dist_cap is not None:
             self._config.dist_cap = dist_cap
 
-    def step(self, actions):
+    def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1
         # 在step执行前，基于上一步的状态准备好给agent的输入
         if self._config.use_partial_obs:
             self._update_history_and_prepare_data()
         
         # (与父类MPEEnv相同的动力学和奖励计算)
-        clipped_actions = {}
         for a in self.agents:
-            if a.startswith('p_'): dv_step = self._config.p_dv_step
-            else: dv_step = self._config.e_dv_step
+            # 1. 获取该智能体的物理限制参数 (dv_step)
+            dv_step = self._config.p_dv_step if a.startswith('p_') else self._config.e_dv_step
 
-            action = actions.get(a, np.zeros(3))
-            if np.linalg.norm(action) > dv_step:
-                action = action / np.linalg.norm(action) * dv_step
-            if np.linalg.norm(action) > self.remain_Dvs[a]: 
-                action = action / np.linalg.norm(action) * self.remain_Dvs[a]
+            # 2. 获取网络输出的“标准化动作”
+            norm_action = actions.get(a, np.zeros(3))
             
-            clipped_actions[a] = action
-            self.states[a][3:] += action
-            self.remain_Dvs[a] = max(0, self.remain_Dvs[a] - np.linalg.norm(action))
+            physical_action = np.zeros(3)
 
+            # === 3. 维度处理与反归一化 (核心逻辑) ===
+            if self._config.dim_mode == 2:
+                # [2D 模式逻辑]
+                action_xy_norm = norm_action[:2]
+                action_xy_phys = action_xy_norm * dv_step 
+                xy_mag = np.linalg.norm(action_xy_phys)
+                if xy_mag > dv_step:
+                    action_xy_phys = action_xy_phys / xy_mag * dv_step
+                physical_action = np.array([action_xy_phys[0], action_xy_phys[1], 0.0])
+            else: 
+                # [3D 模式逻辑]
+                action_3d_phys = norm_action * dv_step
+                xyz_mag = np.linalg.norm(action_3d_phys)
+                if xyz_mag > dv_step:
+                    action_3d_phys = action_3d_phys / xyz_mag * dv_step
+                physical_action = action_3d_phys
+
+            # === 4. 燃料限制 (物理硬约束) ===
+            current_fuel = self.remain_Dvs.get(a, 0.0)
+            p_norm = np.linalg.norm(physical_action)
+            
+            if p_norm > current_fuel:
+                if p_norm > 1e-8:
+                    physical_action = physical_action / p_norm * current_fuel
+                else:
+                    physical_action = np.zeros(3)
+
+            # === 5. 执行物理更新 (仅速度) ===
+            self.states[a][3:] += physical_action
+            
+            used_fuel = np.linalg.norm(physical_action)
+            self.remain_Dvs[a] = max(0.0, self.remain_Dvs.get(a, 0.0) - used_fuel)
+            
+            # [重要] 更新 actions 字典中的值为真实的物理动作
+            actions[a] = physical_action
+
+        # 轨道积分
         for a in self.agents:
             _, new_state = self._orbit_lib.orbit_hpop(self._time, self.states[a], self._config.dt, self._config.hpop_in)
             self.states[a] = new_state
@@ -290,7 +321,7 @@ class MPE_POMDP_Env(MPEEnv):
 
         # 观测和奖励计算
         observations = self._get_observations()
-        rewards, debug_reward_info = self._get_rewards(clipped_actions)
+        rewards, debug_reward_info = self._get_rewards(actions) # 使用更新后的 actions
         terminations, termination_reasons = self._get_terminations()
         truncations = self._get_truncations()
         self.terminations, self.truncations = terminations, truncations

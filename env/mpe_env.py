@@ -383,7 +383,15 @@ class MPEEnv(PEEnv):
     def reset(self, seed=None, options=None):
         if self._config.use_fixed_seed_for_reset: np.random.seed(42)
         self.agents = self.possible_agents[:]
-        base_sma, ecc, inc, raan, argp = 42166300.0, 0.0, 0.0, 0.0, 0.0
+        base_sma = 42166300.0
+
+        # === [修改] 2D/3D 初始化参数 ===
+        if self._config.dim_mode == 2:
+            ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+        else:
+            # 3D 模式 (你原来的代码这里也是0，如果需要真3D随机，可以在这里改 inc)
+            ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+
         self.states = {}
         ta_eva = np.random.uniform(0.0, 2 * np.pi)
         eva_sma = base_sma

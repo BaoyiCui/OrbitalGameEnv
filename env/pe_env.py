@@ -82,6 +82,7 @@ class PEEnvCfg:
         assert self.e_dv_step > 0.0
         assert self.p_init_dv > 0.0
         assert self.e_init_dv > 0.0
+        assert self.dim_mode in [2, 3], "dim_mode must be 2 or 3"
 
 
 class PEEnv(ParallelEnv):
@@ -112,11 +113,8 @@ class PEEnv(ParallelEnv):
 
         self.action_spaces = {}
         for a in self.possible_agents:
-            if a.startswith('p_'):
-                dv_step = self._config.p_dv_step
-            else:
-                dv_step = self._config.e_dv_step
-            self.action_spaces[a] = spaces.Box(-dv_step, dv_step, shape=(3,))
+            # 标准化动作空间，网络输出范围为 [-1, 1]
+            self.action_spaces[a] = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
         
         self.observation_spaces = {}
         for a in self.possible_agents:

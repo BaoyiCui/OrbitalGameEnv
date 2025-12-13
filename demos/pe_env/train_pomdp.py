@@ -606,11 +606,13 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
 
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-        writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
+        writer.add_scalar("losses/entropy_loss", (-current_ent_coef * entropy_loss).item(), global_step)
         writer.add_scalar("losses/distillation_loss", distil_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         writer.add_scalar("charts/entropy_coef", current_ent_coef, global_step)
+        # [新增] 准确记录策略的平均熵本身，用于诊断
+        writer.add_scalar("policy/mean_entropy", entropy_loss.item(), global_step)
 
         # [新增] 保存检查点
         if update % cfg.checkpoint_interval == 0:
