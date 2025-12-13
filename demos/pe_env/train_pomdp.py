@@ -590,19 +590,23 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 
                 pg_loss = torch.max(-mb_adv * ratio, -mb_adv * torch.clamp(ratio, 1-cfg.clip_coef, 1+cfg.clip_coef)).mean()
                 v_loss = 0.5 * ((new_value - b_ret) ** 2).mean()
-                entropy_loss = entropy.mean()
+                entropy_value = entropy.mean()
                 
                 # Distillation
                 with torch.no_grad():
                     teacher_targets = agent.teacher_enc(b_priv)
                 distil_loss = F.mse_loss(s_feat, teacher_targets)
                 
-                loss = pg_loss + cfg.vf_coef * v_loss - current_ent_coef * entropy_loss + cfg.distil_coef * distil_loss
+                loss = pg_loss + cfg.vf_coef * v_loss - current_ent_coef * entropy_value + cfg.distil_coef * distil_loss
                 
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), 0.5)
                 optimizer.step()
+
+        # The logged values are from the last minibatch.
+        # The entropy loss is the negative of the (scaled) entropy bonus.
+        entropy_loss = -current_ent_coef * entropy_value
 
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
@@ -611,6 +615,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         writer.add_scalar("charts/entropy_coef", current_ent_coef, global_step)
+        writer.add_scalar("charts/entropy", entropy_value.item(), global_step)
 
         # [新增] 保存检查点
         if update % cfg.checkpoint_interval == 0:
