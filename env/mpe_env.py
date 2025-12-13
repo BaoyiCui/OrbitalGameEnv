@@ -200,7 +200,7 @@ class MPEEnv(PEEnv):
             action_dir /= np.linalg.norm(action_dir)
         else:
             action_dir = total_force / force_magnitude
-        action = action_dir * self._config.e_dv_step
+        action = action_dir
         return action
 
     def get_evader_actions(self):

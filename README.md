@@ -11,30 +11,32 @@
 ## 2. 核心技术与特性
 
 - **多智能体强化学习 (MARL):** 支持 `N vs M` 的追逃场景，允许多个追击智能体协同作战。
-- **高保真轨道动力学:**
+- **2D/3D 可切换仿真模式:** 环境支持在二维平面（赤道面）和三维空间中进行模拟，可通过 `--dim_mode` 参数轻松切换，便于从简单到复杂的场景迁移和分析。
+- **高保真轨道动力学:** 
     - 底层调用C++编译的 `libOrbit.so` 动态库进行高精度轨道外推（HPOP），确保了环境的物理真实性。
     - 支持J2摄动等复杂动力学模型。
-- **部分可观测环境 (POMDP):**
+- **部分可观测环境 (POMDP):** 
     - **不完全观测:** 追击方只能在特定时间间隔（`obs_interval`）获得目标的精确位置，模拟了地面雷达的非连续观测特性。
     - **历史依赖:** 智能体必须依赖历史观测序列来推断目标的当前状态和意图。
-- **先进的智能体架构 (HRG - Hierarchical Recurrent Graph Network):**
+- **先进的智能体架构 (HRG - Hierarchical Recurrent Graph Network):** 
     - **记忆模块 (Transformer):** 每个智能体都配备了一个Transformer编码器，作为其记忆核心。它负责处理历史观测序列，提取关于目标运动模式的关键时序特征。
     - **态势感知模块 (Student Encoder):** 这是一个基于注意力机制的编码器，负责在每一时刻动态地融合多种信息源：
         1.  **自身状态:** 包括轨道六根数、剩余燃料等。
         2.  **即时观测:** 当前时刻获取到的（可能不精确的）目标信息。
         3.  **队友信息:** 队友的相对位置、速度和状态。
         4.  **历史记忆:** 由Transformer处理后输出的关于目标轨迹的记忆特征。
-    - **非对称训练范式 (Asymmetric Actor-Critic):**
+    - **标准化动作空间:** 为了提升训练稳定性和收敛速度，策略网络的输出被限制在 `[-1, 1]` 的标准化立方体空间内。环境的 `step` 函数负责将此标准化动作反归一化为真实的物理指令（如 `m/s` 的速度增量），并进行精确的球形/圆形边界截断，这是处理连续动作物理控制问题的业界标准实践。
+    - **非对称训练范式 (Asymmetric Actor-Critic):** 
         - **演员 (Actor):** 最终部署的决策网络，严格遵守POMDP设定，仅依赖自身的部分观测和历史记忆进行决策。
         - **评论家 (Critic):** 在训练阶段，Critic可以获取包含所有智能体真实状态的“上帝视角”特权信息。这使其能对局势做出更准确的价值判断，从而更稳定、高效地指导Actor的学习。
     - **知识蒸馏 (Knowledge Distillation):** 引入一个“教师”网络（`Aligned_Teacher`），它直接从特权信息中学习一个“理想”的态势感知表征，并通过MSE损失来“指导”学生网络（Actor的编码器）的特征学习，加速收敛。
-- **课程学习 (Curriculum Learning):**
+- **课程学习 (Curriculum Learning):** 
     - 为了解决稀疏奖励和任务难度过大的问题，训练采用课程学习策略，从简单任务开始，随智能体能力提升自动增加难度。
-    - **可调难度参数:**
+    - **可调难度参数:** 
         - `m` (初始距离): 从近距离开始，逐步增大追逃的初始分离距离。
         - `p_init_dv` (初始燃料): 从充足的燃料开始，逐步减少追击方的可用燃料。
         - `dist_cap` (捕获半径): 从一个较大的捕获半径开始，逐步缩小，要求更精确的拦截。
-- **可配置的对手策略:**
+- **可配置的对手策略:** 
     - 逃逸智能体可以配置多种等级的脚本策略，用于评估和增强追击方的鲁棒性：
         - **Level 0:** 静止不动 (Drift)
         - **Level 1:** 随机机动 (Random)
@@ -43,7 +45,7 @@
 ## 3. 项目结构
 
 ```
-HLS_LLS/
+HLS_LLS_2D/
 ├── demos/pe_env/
 │   ├── run_training.py   # 训练主入口，负责解析参数和启动训练
 │   ├── train_pomdp.py    # 核心训练脚本，包含PPO和课程学习的完整循环
@@ -83,16 +85,18 @@ pip install gymnasium numpy matplotlib imageio tqdm
 
 **训练示例:**
 ```bash
-# 启动一次标准的训练，命名为 "MyFirstRun"，使用2级逃逸策略
+# 启动一次3D模式下的训练，命名为 "3D_Run_01"，使用4个追击者和2级逃逸策略
 conda run -n orbit python demos/pe_env/run_training.py \
-    --run_name "MyFirstRun" \
+    --run_name "3D_Run_01" \
     --num_p 4 \
     --evader_policy_level 2 \
+    --dim_mode 3 \
     --total_timesteps 10000000
 ```
 
 **常用训练参数:**
 - `--run_name`: 本次训练的名称，用于区分不同的实验。
+- `--dim_mode`: 环境维度模式 (2: 2D平面, 3: 3D空间)。**默认为2D模式**。
 - `--num_p`: 追击者的数量。
 - `--evader_policy_level`: 逃逸者策略等级 (0: 静止, 1: 随机, 2: APF)。
 - `--total_timesteps`: 总训练步数。
@@ -119,11 +123,12 @@ tensorboard --logdir=runs
 ```bash
 # 评估某个最终保存的检查点，并生成可视化媒体文件
 conda run -n orbit python demos/pe_env/eval4train_pomdp.py \
-    --checkpoint "runs/MyFirstRun/checkpoints/ckpt_final_XXX.pth" \
+    --checkpoint "runs/3D_Run_01/checkpoints/ckpt_final_XXX.pth" \
     --save_media \
     --test_episodes 100
 ```
 - `--checkpoint`: 指定要评估的模型文件路径。
+- `--dim_mode`: 可在评估时指定2D或3D模式，以测试模型在不同维度下的表现。
 - `--save_media`: 为第一个成功的评估案例生成轨迹图（.png）和GIF动画。
 - `--test_episodes`: 指定评估的总回合数，以计算成功率。
 - `--evader_policy_level`: 可在评估时指定与训练时不同的对手策略，以测试模型的泛化能力。
