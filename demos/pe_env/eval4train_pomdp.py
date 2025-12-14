@@ -4,7 +4,6 @@ import argparse
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import imageio
 from collections import defaultdict
 from tqdm import tqdm
 import io
@@ -59,14 +58,14 @@ def save_static_plot(traj_data, pursuer_ids, evader_id, filename):
     colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
     for i, pid in enumerate(pursuer_ids):
         if pid in traj_data:
-            pos = traj_data[pid] / scale
+            pos = np.array(traj_data[pid]) / scale
             ax.plot(pos[:,0], pos[:,1], pos[:,2], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
             ax.scatter(pos[0,0], pos[0,1], pos[0,2], marker='o', color=colors[i], s=30, alpha=0.8, label=f'P{i} Start')
             ax.scatter(pos[-1,0], pos[-1,1], pos[-1,2], marker='x', color=colors[i], s=60, linewidth=2, label=f'P{i} End')
 
     # 逃逸者轨迹
     if evader_id in traj_data:
-        pos = traj_data[evader_id] / scale
+        pos = np.array(traj_data[evader_id]) / scale
         ax.plot(pos[:,0], pos[:,1], pos[:,2], label='Evader', color='red', linestyle='--', linewidth=1.5, alpha=0.8)
         ax.scatter(pos[0,0], pos[0,1], pos[0,2], marker='o', color='red', s=30, alpha=0.8, label='Evader Start')
         ax.scatter(pos[-1,0], pos[-1,1], pos[-1,2], marker='*', color='red', s=100, label='Evader End')
@@ -82,57 +81,45 @@ def save_static_plot(traj_data, pursuer_ids, evader_id, filename):
     plt.close(fig)
     print(f"Static plot saved to {filename}")
 
-def create_gif(traj_data, evader_id, pursuer_ids, filename="trajectory.gif", duration=0.1):
-    """创建以逃逸者为中心的GIF动画 (高清版)"""
-    print(f"Generating high-quality GIF, this may take a moment...")
-    images = []
+def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
+    """生成并保存在Z轴俯视视角下的2D静态轨迹图"""
+    print(f"Generating top-down (Z-axis view) static trajectory plot...")
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
     
-    evader_traj = traj_data[evader_id]
+    # 地球 (2D视图)
+    R_earth = 6378.137 # km
+    earth_circle = plt.Circle((0, 0), R_earth, color='blue', alpha=0.1)
+    ax.add_artist(earth_circle)
+
+    scale = 1000.0 # m to km
     
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
+    # 追击者轨迹
+    colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
+    for i, pid in enumerate(pursuer_ids):
+        if pid in traj_data:
+            pos = np.array(traj_data[pid]) / scale
+            ax.plot(pos[:,0], pos[:,1], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
+            ax.scatter(pos[0,0], pos[0,1], marker='o', color=colors[i], s=30, alpha=0.8, label=f'P{i} Start')
+            ax.scatter(pos[-1,0], pos[-1,1], marker='x', color=colors[i], s=60, linewidth=2, label=f'P{i} End')
 
-    max_range = 0
-    for i in range(len(evader_traj)):
-        for pid in pursuer_ids:
-            if pid in traj_data:
-                p_traj = traj_data[pid]
-                if i < len(p_traj):
-                    rel_pos = p_traj[i] - evader_traj[i]
-                    max_range = max(max_range, np.max(np.abs(rel_pos)))
+    # 逃逸者轨迹
+    if evader_id in traj_data:
+        pos = np.array(traj_data[evader_id]) / scale
+        ax.plot(pos[:,0], pos[:,1], label='Evader', color='red', linestyle='--', linewidth=1.5, alpha=0.8)
+        ax.scatter(pos[0,0], pos[0,1], marker='o', color='red', s=30, alpha=0.8, label='Evader Start')
+        ax.scatter(pos[-1,0], pos[-1,1], marker='*', color='red', s=100, label='Evader End')
 
-    plot_radius = max_range / 1000 * 1.2
+    ax.set_xlabel('X (km)')
+    ax.set_ylabel('Y (km)')
+    ax.set_title('Top-Down Trajectory (Z-axis view)')
+    ax.legend()
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True)
 
-    for i in tqdm(range(len(evader_traj)), desc="Generating GIF frames"):
-        ax.clear()
-        ax.scatter(0, 0, 0, marker='*', color='red', s=200, label='Evader (Reference)')
-        colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
-        for idx, pid in enumerate(pursuer_ids):
-            if pid in traj_data:
-                p_traj = traj_data[pid]
-                if i < len(p_traj):
-                    rel_pos = (p_traj[i] - evader_traj[i]) / 1000.0
-                    ax.scatter(rel_pos[0], rel_pos[1], rel_pos[2], marker='o', color=colors[idx], s=80, label=f'Pursuer {idx}' if i==0 else "")
-
-        ax.set_xlim([-plot_radius, plot_radius])
-        ax.set_ylim([-plot_radius, plot_radius])
-        ax.set_zlim([-plot_radius, plot_radius])
-        ax.set_xlabel('Relative X (km)')
-        ax.set_ylabel('Relative Y (km)')
-        ax.set_zlabel('Relative Z (km)')
-        ax.set_title(f'Evader-Centric View (Step {i})')
-        if i == 0:
-            ax.legend()
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=150)
-        buf.seek(0)
-        images.append(imageio.imread(buf))
-        buf.close()
-        
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    imageio.mimsave(filename, images, duration=duration)
-    print(f"High-quality GIF saved to {filename}")
+    print(f"Top-down plot saved to {filename}")
 
 def run_eval(args):
     """主评估函数"""
@@ -164,8 +151,9 @@ def run_eval(args):
     env_cfg.num_e = args.num_e
     env_cfg.history_len = args.history_len
     env_cfg.evader_policy_level = args.evader_policy_level
+    env_cfg.dim_mode = args.dim_mode
 
-    print(f"Evaluating with: Pursuers={env_cfg.num_p}, Evaders={env_cfg.num_e}, Evader Policy={env_cfg.evader_policy_level}")
+    print(f"Evaluating with: Pursuers={env_cfg.num_p}, Evaders={env_cfg.num_e}, Evader Policy={env_cfg.evader_policy_level}, Dim Mode={env_cfg.dim_mode}")
 
     env = MPE_POMDP_Env(env_cfg)
     
@@ -207,7 +195,7 @@ def run_eval(args):
             mask_tensor = torch.stack(mask_list)
 
             with torch.no_grad():
-                actions_tensor, _, _, _, _ = model.get_action_and_value(
+                actions_tensor, _, _, _, _, _ = model.get_action_and_value(
                     pursuer_obs_tensor, pursuer_priv_obs_tensor, history_tensor, mask_tensor, deterministic=True
                 )
             
@@ -242,12 +230,14 @@ def run_eval(args):
 
     # --- 5. 生成媒体文件 ---
     if media_saved_traj and args.save_media:
-        gif_path = os.path.join(output_dir, "trajectory_animation.gif")
-        static_plot_path = os.path.join(output_dir, "trajectory_static.png")
+        static_plot_path = os.path.join(output_dir, "trajectory_static_3D.png")
+        top_down_plot_path = os.path.join(output_dir, "trajectory_top_down_2D.png")
         
         print("\n--- Generating Media ---")
-        create_gif(media_saved_traj, evader_ids[0], pursuer_ids, filename=gif_path)
+        # create_gif is removed, so we don't call it
+        print("Skipping GIF generation as imageio is not available.")
         save_static_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=static_plot_path)
+        save_top_down_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=top_down_plot_path)
     elif args.save_media:
         print("No successful episodes were recorded, so no media will be generated.")
 
@@ -258,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_e", type=int, default=1, help="Number of evaders")
     parser.add_argument("--use_encoder", type=lambda x: (str(x).lower() == 'true'), default=None, help="Use Attention Encoder (loads from checkpoint if not set)")
     parser.add_argument("--history_len", type=int, default=20, help="History length for Transformer")
+    parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="Environment dimension mode: 2=2D (default), 3=3D")
     parser.add_argument("--evader_policy_level", type=int, default=0, choices=[0, 1, 2], help="Evader policy: 0=Drift, 1=Random, 2=APF")
     
     parser.add_argument("--test_episodes", type=int, default=20, help="Number of episodes to test for success rate")

@@ -399,17 +399,20 @@ class MPEEnv(PEEnv):
             eva_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
         self.states['e_0'] = self._orbit_lib.coe2rv(np.array([eva_sma, ecc, inc, raan, argp, ta_eva]))
         
-        inner_dist = self._config.dist_cap + self._config.e_init_dist_min_offset
-        outer_dist = self._config.dist_cap + self._config.e_init_dist_max_offset
-        num_forward = self._config.num_p // 2 + self._config.num_p % 2
-        directions = ([1.0] * num_forward) + ([-1.0] * (self._config.num_p - num_forward))
-        np.random.shuffle(directions)
+        # 方案B: 采用“角度均分”逻辑，让追击者在轨道上均匀散开
+        # 1. 随机化一个参考角度，让整个星座随机旋转 (满足需求1和3)
+        ta_ref = np.random.uniform(0.0, 2 * np.pi)
+        angle_step = 2 * np.pi / self._config.num_p
 
-        for i in range(self._config.num_p):
-            agent_id = f'p_{i}'
-            target_dist = np.random.uniform(inner_dist, outer_dist)
-            angle_offset = (target_dist / base_sma) * directions[i]
-            ta_pur = (ta_eva + angle_offset) % (2 * np.pi)
+        # 2. 随机化智能体ID的分配顺序 (满足需求2)
+        pursuer_ids_shuffled = [f'p_{i}' for i in range(self._config.num_p)]
+        np.random.shuffle(pursuer_ids_shuffled)
+
+        for i, agent_id in enumerate(pursuer_ids_shuffled):
+            # 3. 为每个追击者分配一个基础角度，并加入少量噪声
+            noise = np.random.uniform(-0.26, 0.26) # +/- 15度的噪声
+            ta_pur = (ta_ref + i * angle_step + noise) % (2 * np.pi)
+            
             pur_sma = base_sma
             if self.current_sma_perturb_km > 0:
                 pur_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)

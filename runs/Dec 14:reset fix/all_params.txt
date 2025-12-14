@@ -32,7 +32,7 @@ device: cuda
 debug_critic: False
 debug_observation: False
 resume_from_checkpoint: None
-run_name: Dec 13:actor fix
+run_name: Dec 14:reset fix
 
 --- MPE_POMDP_EnvCfg ---
 evader_policy_type: Scripted
@@ -121,7 +121,7 @@ reward_phase_dist_weight: 1.0
 reward_time_weight: 0.02
 reward_timeout_penalty: -9
 ring_width_delta: 20000.0
-run_name: Dec 13:actor fix
+run_name: Dec 14:reset fix
 seed: 42
 sma_perturb_end_update: 1500
 sma_perturb_km_max: 10.0
