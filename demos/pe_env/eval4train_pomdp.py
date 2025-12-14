@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm
 import io
+import imageio
 from pathlib import Path
 
 # 将项目根目录添加到Python路径中
@@ -121,6 +122,112 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
     plt.close(fig)
     print(f"Top-down plot saved to {filename}")
 
+def save_relative_plot(traj_data, pursuer_ids, evader_id, filename):
+    """生成并保存以逃逸者为中心的2D相对轨迹图"""
+    print(f"Generating relative trajectory plot...")
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
+    
+    scale = 1000.0 # m to km
+    
+    if evader_id not in traj_data:
+        print("Evader trajectory not found, skipping relative plot.")
+        plt.close(fig)
+        return
+
+    evader_traj = np.array(traj_data[evader_id])
+    
+    # 逃逸者在中心
+    ax.scatter(0, 0, marker='*', color='red', s=150, label='Evader (Reference)', zorder=10)
+
+    colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
+    for i, pid in enumerate(pursuer_ids):
+        if pid in traj_data:
+            pursuer_traj = np.array(traj_data[pid])
+            
+            # 确保轨迹长度一致
+            min_len = min(len(evader_traj), len(pursuer_traj))
+            relative_traj = (pursuer_traj[:min_len] - evader_traj[:min_len]) / scale
+            
+            ax.plot(relative_traj[:,0], relative_traj[:,1], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
+            ax.scatter(relative_traj[0,0], relative_traj[0,1], marker='o', color=colors[i], s=40, label=f'P{i} Start')
+            ax.scatter(relative_traj[-1,0], relative_traj[-1,1], marker='x', color=colors[i], s=80, linewidth=2, label=f'P{i} End')
+
+    ax.set_xlabel('Relative X (km)')
+    ax.set_ylabel('Relative Y (km)')
+    ax.set_title('Relative Trajectory to Evader (Top-Down View)')
+    ax.legend()
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True)
+    
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Relative plot saved to {filename}")
+
+def create_gif(traj_data, pursuer_ids, evader_id, filename, frame_skip=5):
+    """创建并保存以逃逸者为中心的相对位置GIF"""
+    print(f"Generating relative trajectory GIF...")
+    
+    if evader_id not in traj_data:
+        print("Evader trajectory not found, skipping GIF generation.")
+        return
+
+    evader_traj = np.array(traj_data[evader_id])
+    
+    # 找到所有轨迹中的最大长度
+    max_len = 0
+    if evader_id in traj_data:
+        max_len = len(traj_data[evader_id])
+    for pid in pursuer_ids:
+        if pid in traj_data:
+            max_len = max(max_len, len(traj_data[pid]))
+
+    images = []
+    colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
+    scale = 1000.0 # m to km
+
+    for t in tqdm(range(0, max_len, frame_skip), desc="Creating GIF frames"):
+        fig = plt.figure(figsize=(8, 8))
+        ax = fig.add_subplot(111)
+        
+        # 逃逸者在中心
+        ax.scatter(0, 0, marker='*', color='red', s=150, label='Evader', zorder=10)
+
+        all_x = [0]
+        all_y = [0]
+
+        for i, pid in enumerate(pursuer_ids):
+            if pid in traj_data and t < len(traj_data[pid]) and t < len(evader_traj):
+                pursuer_pos = np.array(traj_data[pid][t])
+                evader_pos = np.array(evader_traj[t])
+                relative_pos = (pursuer_pos - evader_pos) / scale
+                
+                ax.scatter(relative_pos[0], relative_pos[1], marker='o', color=colors[i], s=100, label=f'Pursuer {i}')
+                all_x.append(relative_pos[0])
+                all_y.append(relative_pos[1])
+
+        # 动态调整坐标轴范围
+        max_range = max(np.abs(all_x).max(), np.abs(all_y).max()) * 1.2 + 5 # 加上一点余量
+        ax.set_xlim(-max_range, max_range)
+        ax.set_ylim(-max_range, max_range)
+        
+        ax.set_xlabel('Relative X (km)')
+        ax.set_ylabel('Relative Y (km)')
+        ax.set_title(f'Relative Positions at Step {t}')
+        ax.legend()
+        ax.grid(True)
+        ax.set_aspect('equal', adjustable='box')
+
+        # 将图像保存到内存
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        images.append(imageio.imread(buf))
+        plt.close(fig)
+
+    imageio.mimsave(filename, images, duration=0.1, loop=0)
+    print(f"GIF saved to {filename}")
+
 def run_eval(args):
     """主评估函数"""
     device = torch.device("cuda" if torch.cuda.is_available() and args.device == "cuda" else "cpu")
@@ -232,14 +339,17 @@ def run_eval(args):
     if media_saved_traj and args.save_media:
         static_plot_path = os.path.join(output_dir, "trajectory_static_3D.png")
         top_down_plot_path = os.path.join(output_dir, "trajectory_top_down_2D.png")
+        relative_plot_path = os.path.join(output_dir, "trajectory_relative_2D.png")
+        gif_path = os.path.join(output_dir, "trajectory_relative.gif")
         
         print("\n--- Generating Media ---")
-        # create_gif is removed, so we don't call it
-        print("Skipping GIF generation as imageio is not available.")
         save_static_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=static_plot_path)
         save_top_down_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=top_down_plot_path)
+        save_relative_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=relative_plot_path)
+        create_gif(media_saved_traj, pursuer_ids, evader_ids[0], filename=gif_path)
     elif args.save_media:
         print("No successful episodes were recorded, so no media will be generated.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate MPE POMDP Agent")

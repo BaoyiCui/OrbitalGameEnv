@@ -233,6 +233,30 @@ class MPEEnv(PEEnv):
         formation_reward = self._config.reward_formation_weight * (1.0 / (1.0 + self._calculate_formation_score(pursuer_positions, evader_positions[0])))
         capture_occurred = min(dists_to_evader) < self._config.dist_cap
 
+        # === [新增] 防碰撞惩罚逻辑 ===
+        collision_penalties = {pid: 0.0 for pid in self.pursuer_ids}
+        active_pursuers = [pid for pid in self.pursuer_ids if pid in self.agents]
+        p_positions = {pid: self.states[pid][:3] for pid in active_pursuers}
+        
+        if len(active_pursuers) > 1:
+            for i in range(len(active_pursuers)):
+                for j in range(i + 1, len(active_pursuers)):
+                    id_a = active_pursuers[i]
+                    id_b = active_pursuers[j]
+                    
+                    pos_a = p_positions[id_a]
+                    pos_b = p_positions[id_b]
+                    
+                    dist = np.linalg.norm(pos_a - pos_b)
+                    
+                    if dist < self._config.dist_collision:
+                        penalty_factor = (self._config.dist_collision - dist) / self._config.dist_collision
+                        raw_penalty = self._config.max_collision_penalty * (penalty_factor ** 2)
+                        final_penalty = -self._config.reward_collision_weight * raw_penalty
+                        
+                        collision_penalties[id_a] += final_penalty
+                        collision_penalties[id_b] += final_penalty
+
         # --- 保留旧的 r_adv 计算逻辑 ---
         num_future_steps = int(self._config.advantage_reward_horizon / self._config.dt)
         advantage_rewards = {a: 0.0 for a in self.pursuer_ids}
@@ -275,12 +299,14 @@ class MPEEnv(PEEnv):
             if agent_id in self.agents:
                 r_dist_phase = self._get_phase_distance_reward(agent_id, main_evader_id)
                 r_adv = advantage_rewards.get(agent_id, 0.0)
+                r_coll = collision_penalties.get(agent_id, 0.0)
                 
                 rewards[agent_id] = (self._config.reward_phase_dist_weight * r_dist_phase +
                                      formation_reward +
                                      -self._config.reward_time_weight +
                                      -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3))) +
-                                     r_adv)
+                                     r_adv +
+                                     r_coll)
                 
                 if self._config.debug_rewards:
                     debug_reward_info[agent_id].update({
@@ -289,6 +315,7 @@ class MPEEnv(PEEnv):
                         "r_time": -self._config.reward_time_weight,
                         "r_fuel": -self._config.reward_fuel_weight * np.linalg.norm(actions.get(agent_id, np.zeros(3))),
                         "r_adv_original": r_adv,
+                        "r_collision": r_coll,
                         "total_pre_terminal": rewards[agent_id]
                     })
 

@@ -68,6 +68,10 @@ def main():
     reward_parser.add_argument("--capture_reward", type=float, default=NEW_REWARD_DEFAULTS.get('capture_reward', MPEEnvCfg.capture_reward), help="终端奖励：抓捕成功奖励")
     reward_parser.add_argument("--reward_timeout_penalty", type=float, default=NEW_REWARD_DEFAULTS.get('reward_timeout_penalty', MPEEnvCfg.reward_timeout_penalty), help="终端奖励：超时失败的惩罚")
     reward_parser.add_argument("--reward_fuelout_penalty", type=float, default=NEW_REWARD_DEFAULTS.get('reward_fuelout_penalty', MPEEnvCfg.reward_fuelout_penalty), help="终端奖励：燃料耗尽的惩罚")
+    # 新增防碰撞参数
+    reward_parser.add_argument("--dist_collision", type=float, default=MPEEnvCfg.dist_collision, help="防碰撞：安全半径 (米)")
+    reward_parser.add_argument("--reward_collision_weight", type=float, default=MPEEnvCfg.reward_collision_weight, help="防碰撞：惩罚权重")
+    reward_parser.add_argument("--max_collision_penalty", type=float, default=MPEEnvCfg.max_collision_penalty, help="防碰撞：最大单步惩罚值")
 
     # --- 算法超参数 ---
     algo_parser.add_argument("--lr", type=float, default=TrainConfig.lr, help="Actor-Critic网络的学习率")

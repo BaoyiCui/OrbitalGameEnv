@@ -50,6 +50,11 @@ class PEEnvCfg:
     reward_capture: float = 20.0 # 成功抓捕的奖励
     advantage_reward_horizon: float = 3600.0 # 优势奖励的预测时间窗口 (秒, 60分钟)
 
+    # === 新增防碰撞参数 ===
+    dist_collision: float = 2000.0  # 碰撞/安全半径 (米)
+    reward_collision_weight: float = 1.0  # 碰撞惩罚权重
+    max_collision_penalty: float = 10.0 # 最大的单步碰撞惩罚上限
+
     # 仿真参数设置
     dt: float = 60.0  # 每次机动的间隔时间
     p_dv_step: float = 1.5 # 追击方每次机动的最大速度增量, m/s
