@@ -399,23 +399,40 @@ class MPEEnv(PEEnv):
             eva_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
         self.states['e_0'] = self._orbit_lib.coe2rv(np.array([eva_sma, ecc, inc, raan, argp, ta_eva]))
         
-        # 方案B: 采用“角度均分”逻辑，让追击者在轨道上均匀散开
-        # 1. 随机化一个参考角度，让整个星座随机旋转 (满足需求1和3)
-        ta_ref = np.random.uniform(0.0, 2 * np.pi)
+        # 新版初始化逻辑: 以逃逸者为中心，在圆环内十字初始化追击者
+        inner_dist = self._config.dist_cap + self._config.e_init_dist_min_offset
+        outer_dist = self._config.dist_cap + self._config.e_init_dist_max_offset
+
+        # 1. 定义十字的“半径”：使用环的平均物理距离，并近似转为对轨道根数的影响
+        target_dist = np.random.uniform(inner_dist, outer_dist)
+        
+        # 2. 随机旋转十字
+        cross_rotation = np.random.uniform(0, 2 * np.pi)
         angle_step = 2 * np.pi / self._config.num_p
 
-        # 2. 随机化智能体ID的分配顺序 (满足需求2)
+        # 3. 随机分配ID
         pursuer_ids_shuffled = [f'p_{i}' for i in range(self._config.num_p)]
         np.random.shuffle(pursuer_ids_shuffled)
 
         for i, agent_id in enumerate(pursuer_ids_shuffled):
-            # 3. 为每个追击者分配一个基础角度，并加入少量噪声
-            noise = np.random.uniform(-0.26, 0.26) # +/- 15度的噪声
-            ta_pur = (ta_ref + i * angle_step + noise) % (2 * np.pi)
-            
-            pur_sma = base_sma
+            # 4. 计算每个追击者在十字上的角度
+            pursuer_angle_on_cross = cross_rotation + i * angle_step
+
+            # 5. 将十字坐标（极坐标）近似转换为对逃逸者轨道根数的偏移量
+            #    - 切向偏移 (Along-track) -> 修改真近点角 ta
+            #    - 径向偏移 (Radial) -> 修改半长轴 sma
+            #    这是一个简化近似，但在GEO大圆轨道上效果合理
+            angle_radius = target_dist / base_sma
+            ta_offset = angle_radius * np.cos(pursuer_angle_on_cross)
+            sma_offset = target_dist * np.sin(pursuer_angle_on_cross)
+
+            # 6. 计算并设置追击者状态
+            pur_sma = eva_sma + sma_offset
+            ta_pur = (ta_eva + ta_offset) % (2 * np.pi)
+
             if self.current_sma_perturb_km > 0:
                 pur_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+            
             self.states[agent_id] = self._orbit_lib.coe2rv(np.array([pur_sma, ecc, inc, raan, argp, ta_pur]))
 
         self._time = self._config.init_utc

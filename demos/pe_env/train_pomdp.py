@@ -60,10 +60,6 @@ class TrainConfig:
     target_m: float = 80000.0
     ring_width_delta: float = 5000.0
     m_increment: float = 2000.0
-    
-    initial_dist_cap: float = 50000.0
-    min_dist_cap: float = 30000.0
-    dist_cap_decrement: float = 500.0
 
     # 燃料课程
     initial_p_init_dv: float = 500.0
@@ -324,17 +320,15 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     
     # 初始化所有环境的难度
     current_m = cfg.initial_m
-    current_dist_cap = cfg.initial_dist_cap
     current_p_init_dv = cfg.initial_p_init_dv
     
     for env in envs:
         env.set_difficulty_parameters(
             m_distance=current_m,
             ring_width_delta=cfg.ring_width_delta,
-            p_init_dv=current_p_init_dv, 
-            dist_cap=current_dist_cap
+            p_init_dv=current_p_init_dv
         )
-    print(f"Init Difficulty: m={current_m}, Cap={current_dist_cap}, Fuel={current_p_init_dv}")
+    print(f"Init Difficulty: m={current_m}, Fuel={current_p_init_dv}")
 
     # 获取维度信息
     pursuer_ids = [f'p_{i}' for i in range(env_cfg.num_p)]
@@ -629,7 +623,6 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 'train_cfg': vars(cfg),
                 'curriculum': {
                     'current_m': current_m,
-                    'current_dist_cap': current_dist_cap,
                     'current_p_init_dv': current_p_init_dv,
                 }
             }
@@ -658,26 +651,22 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 if current_p_init_dv > cfg.min_p_init_dv:
                     current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
                     changed = True
-                if current_dist_cap > cfg.min_dist_cap:
-                    current_dist_cap = max(current_dist_cap - cfg.dist_cap_decrement, cfg.min_dist_cap)
-                    changed = True
                 
                 if changed:
                     print(f"\n*** [UPGRADE] SR={current_sr:.2f} (Stable {curriculum_stability_counter}). New: m={current_m}, Fuel={current_p_init_dv} ***")
                     # 应用到所有环境
                     for env in envs:
-                        env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv, dist_cap=current_dist_cap)
+                        env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
                     recent_episode_stats.clear()
                     curriculum_stability_counter = 0 # 升级后重置计数
                     
                     # 记录日志
                     with open(progress_path, "a") as f:
-                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tUPGRADE\n")
+                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_p_init_dv}\tUPGRADE\n")
 
                 # [新增] 早停检查: 无论本次是否升级(changed)，只要满足课程目标就检查
                 if current_m >= cfg.target_m and \
-                   current_p_init_dv <= cfg.min_p_init_dv and \
-                   current_dist_cap <= cfg.min_dist_cap:
+                   current_p_init_dv <= cfg.min_p_init_dv:
                     print(f"\n--- [EARLY STOPPING] Curriculum target reached at update {update}. Stopping training. ---")
                     break # 退出主训练循环
 
@@ -688,15 +677,14 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 # 回退操作：难度大幅降低
                 current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
                 current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
-                current_dist_cap = min(current_dist_cap + cfg.dist_cap_decrement * 2, cfg.initial_dist_cap)
                 
                 for env in envs:
-                    env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv, dist_cap=current_dist_cap)
+                    env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
                 recent_episode_stats.clear()
                 curriculum_stability_counter = 0
                 
                 with open(progress_path, "a") as f:
-                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_dist_cap}\t{current_p_init_dv}\tROLLBACK\n")
+                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_p_init_dv}\tROLLBACK\n")
 
     # [新增] 保存训练完成的最终模型
     print(f"\n--- 训练结束于 update {update}。保存最终模型... ---")

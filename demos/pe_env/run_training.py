@@ -97,11 +97,8 @@ def main():
     curriculum_parser.add_argument("--m_increment", type=float, default=TrainConfig.m_increment, help="课程学习：每次提升的距离增量 (米)")
     curriculum_parser.add_argument("--ring_width_delta", type=float, default=TrainConfig.ring_width_delta, help="课程学习：初始生成圆环的宽度 (米)")
     # 其他课程参数
-    curriculum_parser.add_argument("--initial_dist_cap", type=float, default=TrainConfig.initial_dist_cap, help="初始捕获距离")
     curriculum_parser.add_argument("--initial_p_init_dv", type=float, default=TrainConfig.initial_p_init_dv, help="初始燃料")
-    curriculum_parser.add_argument("--dist_cap_decrement", type=float, default=TrainConfig.dist_cap_decrement, help="捕获距离的缩减量")
     curriculum_parser.add_argument("--p_init_dv_decrement", type=float, default=TrainConfig.p_init_dv_decrement, help="燃料的缩减量")
-    curriculum_parser.add_argument("--min_dist_cap", type=float, default=TrainConfig.min_dist_cap, help="最小捕获距离")
     curriculum_parser.add_argument("--min_p_init_dv", type=float, default=TrainConfig.min_p_init_dv, help="最小燃料")
     # SMA Perturbation Curriculum
     curriculum_parser.add_argument("--sma_perturb_start_update", type=int, default=MPEEnvCfg.sma_perturb_start_update, help="The update count to start SMA perturbation curriculum.")
@@ -172,11 +169,8 @@ def main():
     train_cfg.m_increment = args.m_increment
     train_cfg.ring_width_delta = args.ring_width_delta
     # 填充其他课程参数
-    train_cfg.initial_dist_cap = args.initial_dist_cap
     train_cfg.initial_p_init_dv = args.initial_p_init_dv
-    train_cfg.dist_cap_decrement = args.dist_cap_decrement
     train_cfg.p_init_dv_decrement = args.p_init_dv_decrement
-    train_cfg.min_dist_cap = args.min_dist_cap
     train_cfg.min_p_init_dv = args.min_p_init_dv
     train_cfg.seed = args.seed
     train_cfg.device = args.device

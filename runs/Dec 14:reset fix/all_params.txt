@@ -21,11 +21,8 @@ initial_m: 2000.0
 target_m: 40000.0
 m_increment: 2000.0
 ring_width_delta: 20000.0
-initial_dist_cap: 50000.0
 initial_p_init_dv: 500.0
-dist_cap_decrement: 500.0
 p_init_dv_decrement: 20.0
-min_dist_cap: 30000.0
 min_p_init_dv: 200.0
 seed: 42
 device: cuda
@@ -48,7 +45,7 @@ p_init_dv: 500.0
 e_init_dv: 100.0
 e_init_dist_min_offset: 20000.0
 e_init_dist_max_offset: 120000.0
-dist_cap: 50000.0
+dist_cap: 30000.0
 episode_length: 86400.0
 reward_dist_weight: 1e-05
 reward_time_weight: 0.02
@@ -87,7 +84,6 @@ debug_observation: False
 debug_rewards: False
 device: cuda
 dim_mode: 2
-dist_cap_decrement: 500.0
 distil_coef: 1.0
 e_dv_step: 0.5
 ent_anneal_start_frac: 0.3
@@ -97,13 +93,11 @@ final_ent_coef: 0.0001
 gae_lambda: 0.95
 gamma: 0.99
 history_len: 20
-initial_dist_cap: 50000.0
 initial_episode_length: 36000
 initial_m: 2000.0
 initial_p_init_dv: 500.0
 lr: 0.0003
 m_increment: 2000.0
-min_dist_cap: 30000.0
 min_p_init_dv: 200.0
 num_e: 1
 num_envs: 4

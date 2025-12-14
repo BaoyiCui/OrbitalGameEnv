@@ -72,7 +72,7 @@ class MPE_POMDP_EnvCfg(MPEEnvCfg):
     
     # [修改] 更新物理参数的默认值以匹配更宽松的约束
     p_init_dv: float = 500.0
-    dist_cap: float = 50000.0 
+    dist_cap: float = 30000.0 
 
     use_lambert_reward: bool = True
     lambert_reward_weight: float = 0.05
