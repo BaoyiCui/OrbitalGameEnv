@@ -30,12 +30,18 @@
         - **演员 (Actor):** 最终部署的决策网络，严格遵守POMDP设定，仅依赖自身的部分观测和历史记忆进行决策。
         - **评论家 (Critic):** 在训练阶段，Critic可以获取包含所有智能体真实状态的“上帝视角”特权信息。这使其能对局势做出更准确的价值判断，从而更稳定、高效地指导Actor的学习。
     - **知识蒸馏 (Knowledge Distillation):** 引入一个“教师”网络（`Aligned_Teacher`），它直接从特权信息中学习一个“理想”的态势感知表征，并通过MSE损失来“指导”学生网络（Actor的编码器）的特征学习，加速收敛。
-- **课程学习 (Curriculum Learning):** 
-    - 为了解决稀疏奖励和任务难度过大的问题，训练采用课程学习策略，从简单任务开始，随智能体能力提升自动增加难度。
-    - **可调难度参数:** 
-        - `m` (初始距离): 从近距离开始，逐步增大追逃的初始分离距离。
-        - `p_init_dv` (初始燃料): 从充足的燃料开始，逐步减少追击方的可用燃料。
-        - `dist_cap` (捕获半径): 从一个较大的捕获半径开始，逐步缩小，要求更精确的拦截。
+- **鲁棒的课程学习 (Robust Curriculum Learning):**
+    - 为了解决稀疏奖励和任务难度过大的问题，训练采用一套鲁棒的自动化课程学习机制，从简单任务开始，随智能体能力提升自动调整难度。
+    - **双维度难度调整 (Dual-Dimension Difficulty Adjustment):**
+        - **物理难度 (Physical Difficulty):**
+            - `m` (初始距离): 从近距离开始，逐步增大追逃的初始分离距离。
+            - `p_init_dv` (初始燃料): 从充足的燃料开始，逐步减少追击方的可用燃料。
+        - **战术难度 (Tactical Difficulty):**
+            - **初始阵型课程 (Initial Formation Curriculum):** 训练过程中会动态调整追击方初始环绕阵型的半径，从一个固定的、有利于协同的半径开始，逐步过渡到更多样化、更具挑战性的随机初始位置，迫使智能体学会应对各种初始态势。
+    - **自动化升降级机制 (Automatic Upgrade/Rollback Mechanism):**
+        - **升级 (Upgrade):** 当智能体在当前难度的成功率（`success_rate`）连续多次（`curriculum_stability_required`）达到预设阈值（`success_rate_threshold`）时，系统会自动增加物理难度。
+        - **降级 (Rollback):** 若成功率骤降至某个低点（`curriculum_rollback_threshold`），表明当前难度过高导致策略崩溃，系统会自动回退到较简单的难度，并重置阵型课程，确保训练的稳定性。
+        - **日志记录:** 整个课程学习的进度，包括每次的升级和降级事件，都会被详细记录在 `runs/<run_name>/curriculum_progress_log.txt` 文件中，便于分析和复盘。
 - **可配置的对手策略:** 
     - 逃逸智能体可以配置多种等级的脚本策略，用于评估和增强追击方的鲁棒性：
         - **Level 0:** 静止不动 (Drift)
@@ -55,7 +61,7 @@ HLS_LLS_2D/
 │   ├── mpe_env.py        # 继承PEEnv，扩展为多智能体环境
 │   ├── mpe_pomdp_env.py  # 继承MPEEnv，加入POMDP特性，是当前的核心环境
 │   └── hrg_models.py     # 定义HRG学生网络和教师网络等模型结构
-├── runs/                   # (训练后生成) 存放TensorBoard日志和模型检查点
+├── runs/                   # (训练后生成) 存放TensorBoard日志、课程进度日志和模型检查点
 └── results/                # (评估后生成) 存放评估结果，如轨迹图和GIF
 ```
 
@@ -103,17 +109,25 @@ conda run -n orbit python demos/pe_env/run_training.py \
 - `--lr`: 学习率。
 - `--target_m`: 课程学习的最终目标距离（米）。
 - `--min_p_init_dv`: 课程学习的最小目标燃料。
+- `--success_rate_threshold`: 课程升级所需的成功率阈值 (默认: 0.8)。
+- `--curriculum_stability_required`: 连续多少次达标后才升级难度 (默认: 3)。
+- `--curriculum_rollback_threshold`: 成功率低于此值时触发难度回退 (默认: 0.4)。
 - `--debug_rewards true`: 在控制台打印详细的奖励构成，便于调试。
 
 ### 4.3 训练监控
 
-训练过程中的各项指标（如奖励、损失、成功率等）会通过TensorBoard记录。
+训练过程中的各项指标（如奖励、损失、成功率等）会通过TensorBoard记录。课程学习的详细进度也会被记录下来。
 
 ```bash
-# 启动TensorBoard
+# 启动TensorBoard监控训练指标
 tensorboard --logdir=runs
 ```
 然后在浏览器中打开 `http://localhost:6006` 查看。
+
+要实时查看课程学习进度，可以查看日志文件：
+```bash
+tail -f runs/<your_run_name>/curriculum_progress_log.txt
+```
 
 ### 4.4 模型评估
 
