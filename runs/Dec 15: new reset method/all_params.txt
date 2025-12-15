@@ -22,7 +22,7 @@ m_increment: 2000.0
 ring_width_delta: 20000.0
 initial_p_init_dv: 500.0
 p_init_dv_decrement: 20.0
-min_p_init_dv: 250.0
+min_p_init_dv: 200.0
 seed: 42
 device: cuda
 debug_critic: False
@@ -110,7 +110,7 @@ initial_p_init_dv: 500.0
 lr: 0.0003
 m_increment: 2000.0
 max_collision_penalty: 10.0
-min_p_init_dv: 250.0
+min_p_init_dv: 200.0
 num_e: 1
 num_envs: 4
 num_mini_batches: 4

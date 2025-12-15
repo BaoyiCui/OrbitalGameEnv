@@ -676,7 +676,32 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 if update % 10 == 0:
                     print(f"--- [Wait] Difficulty maxed, waiting for formation curriculum (Ratio: {GlobalTrainManager.current_ring_ratio:.2f} > {env_cfg.final_ring_ratio}) ---")
 
-            # --- 2. 降级逻辑 (救命回退) ---
+            # --- 2. 升级逻辑 (课程推进) ---
+            elif current_sr >= cfg.success_rate_threshold and not difficulty_reached:
+                curriculum_stability_counter += 1
+                print(f"--- [Progress] SR={current_sr:.2f} >= {cfg.success_rate_threshold}. Stability count: {curriculum_stability_counter}/{cfg.curriculum_stability_required} ---")
+                
+                if curriculum_stability_counter >= cfg.curriculum_stability_required:
+                    print(f"\n+++ [UPGRADE] SR={current_sr:.2f} is stable. Increasing difficulty. +++")
+                    
+                    # 升级操作
+                    current_m = min(current_m + cfg.m_increment, cfg.target_m)
+                    current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
+                    
+                    for env in envs:
+                        env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
+                    
+                    print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
+                    
+                    # 清空统计数据和计数器，重新评估新难度
+                    recent_episode_stats.clear()
+                    curriculum_stability_counter = 0
+                    
+                    # 记录日志
+                    with open(progress_path, "a") as f:
+                        f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},UPGRADE\n")
+
+            # --- 3. 降级逻辑 (救命回退) ---
             elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
                 print(f"\n!!! [ROLLBACK] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
                 
@@ -684,6 +709,8 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
                 current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
                 
+                print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
+
                 # [新增] 同时重置阵型课程
                 GlobalTrainManager.current_ring_ratio = env_cfg.start_ring_ratio
                 print(f"    Formation curriculum reset to Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
@@ -695,6 +722,13 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 
                 with open(progress_path, "a") as f:
                         f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK\n")
+            
+            # --- 4. 维持当前难度 (未达标) ---
+            else:
+                # 如果成功率在回退和升级阈值之间，重置稳定性计数器
+                if curriculum_stability_counter > 0:
+                    print(f"--- [Maintain] SR={current_sr:.2f} is not stable enough. Resetting stability counter. ---")
+                    curriculum_stability_counter = 0
 
     # [新增] 保存训练完成的最终模型
     print(f"\n--- 训练结束于 update {update}。保存最终模型... ---")
