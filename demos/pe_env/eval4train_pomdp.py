@@ -238,7 +238,7 @@ def run_eval(args):
     # --- 1. 创建结果文件夹 ---
     run_name = Path(args.checkpoint).parent.parent.name
     checkpoint_name = Path(args.checkpoint).stem
-    output_dir_name = f"{run_name}_{checkpoint_name}"
+    output_dir_name = f"{run_name}_{checkpoint_name}_eval"
     results_base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'results')
     output_dir = os.path.join(results_base_dir, output_dir_name)
     os.makedirs(output_dir, exist_ok=True)
@@ -246,8 +246,6 @@ def run_eval(args):
 
     # --- 2. 配置和加载模型 ---
     env_cfg = MPE_POMDP_EnvCfg()
-    train_cfg = TrainConfig()
-
     if 'env_cfg' in checkpoint:
         env_cfg_ckpt = checkpoint['env_cfg']
         for key, value in env_cfg_ckpt.items():
@@ -268,26 +266,30 @@ def run_eval(args):
     evader_ids = [f'e_{i}' for i in range(env_cfg.num_e)]
     
     student_obs_dim = env.observation_spaces[pursuer_ids[0]].shape[0]
-    
-    # Correctly calculate privileged_obs_dim based on train_pomdp.py
     num_others = env_cfg.num_p + (env_cfg.num_e - 1)
     privileged_obs_dim = 6 + num_others * 9 
-    
     act_dim = env.action_spaces[pursuer_ids[0]].shape[0]
 
-    # Correct the model class name and instantiation arguments
     model = HRG_ActorCritic(env_cfg, act_dim, privileged_obs_dim, student_obs_dim).to(device)
     model.load_state_dict(checkpoint['agent_state_dict'])
     model.eval()
     print("Model loaded successfully.")
 
     # --- 3. 开始评估循环 ---
-    success_count = 0
-    media_saved_traj = None
+    formations_to_test = ['ring', 'cluster', 'string', 'pincer']
+    success_counts = defaultdict(int)
+    total_counts = defaultdict(int)
+    media_saved_trajs = {}
 
-    print(f"Running evaluation for {args.test_episodes} episodes...")
+    print(f"Running evaluation for {args.test_episodes} episodes, testing all 4 formations...")
     for ep in tqdm(range(args.test_episodes), desc="Evaluating Episodes"):
-        obs, infos = env.reset(seed=args.seed + ep)
+        
+        formation_this_ep = formations_to_test[ep % len(formations_to_test)]
+        total_counts[formation_this_ep] += 1
+
+        # 使用 'options' 参数强制指定阵型
+        obs, infos = env.reset(seed=args.seed + ep, options={'force_formation': formation_this_ep})
+        
         traj_data = defaultdict(list)
         done = False
         
@@ -320,35 +322,48 @@ def run_eval(args):
                 done = True
                 reason = infos.get(pursuer_ids[0], {}).get('termination_reason', 'unknown')
                 if reason == "capture_success":
-                    success_count += 1
-                    if media_saved_traj is None and args.save_media:
-                        media_saved_traj = traj_data
-                        print(f"\nEpisode {ep+1} was successful. Trajectory saved for media generation.")
+                    success_counts[formation_this_ep] += 1
+                    # 如果该阵型还没有保存过媒体，则保存
+                    if formation_this_ep not in media_saved_trajs and args.save_media:
+                        media_saved_trajs[formation_this_ep] = traj_data
+                        print(f"\nFirst success for '{formation_this_ep}' formation in Ep {ep+1}. Trajectory saved for media generation.")
 
     env.close()
 
     # --- 4. 最终结果 ---
-    success_rate = (success_count / args.test_episodes) * 100
-    print("\n" + "="*40)
-    print("       EVALUATION REPORT       ")
-    print("="*40)
-    print(f"Success Rate over {args.test_episodes} episodes: {success_rate:.2f}% ({success_count}/{args.test_episodes})")
-    print("="*40 + "\n")
+    total_successes = sum(success_counts.values())
+    total_episodes = args.test_episodes
+    overall_success_rate = (total_successes / total_episodes) * 100 if total_episodes > 0 else 0
+
+    print("\n" + "="*50)
+    print("             EVALUATION REPORT             ")
+    print("="*50)
+    print(f"Overall Success Rate: {overall_success_rate:.2f}% ({total_successes}/{total_episodes})")
+    print("-" * 50)
+    print("Success Rate per Formation:")
+    for form_name in formations_to_test:
+        s_count = success_counts[form_name]
+        t_count = total_counts[form_name]
+        rate = (s_count / t_count) * 100 if t_count > 0 else 0
+        print(f"  - {form_name.capitalize():<10}: {rate:>6.2f}% ({s_count}/{t_count})")
+    print("="*50 + "\n")
 
     # --- 5. 生成媒体文件 ---
-    if media_saved_traj and args.save_media:
-        static_plot_path = os.path.join(output_dir, "trajectory_static_3D.png")
-        top_down_plot_path = os.path.join(output_dir, "trajectory_top_down_2D.png")
-        relative_plot_path = os.path.join(output_dir, "trajectory_relative_2D.png")
-        gif_path = os.path.join(output_dir, "trajectory_relative.gif")
-        
-        print("\n--- Generating Media ---")
-        save_static_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=static_plot_path)
-        save_top_down_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=top_down_plot_path)
-        save_relative_plot(media_saved_traj, pursuer_ids, evader_ids[0], filename=relative_plot_path)
-        create_gif(media_saved_traj, pursuer_ids, evader_ids[0], filename=gif_path)
+    if media_saved_trajs and args.save_media:
+        print("\n--- Generating Media for First Successful Run of Each Formation ---")
+        for form_name, traj_data in media_saved_trajs.items():
+            print(f"\n--- Generating for '{form_name}' formation ---")
+            static_plot_path = os.path.join(output_dir, f"trajectory_static_3D_{form_name}.png")
+            top_down_plot_path = os.path.join(output_dir, f"trajectory_top_down_2D_{form_name}.png")
+            relative_plot_path = os.path.join(output_dir, f"trajectory_relative_2D_{form_name}.png")
+            gif_path = os.path.join(output_dir, f"trajectory_relative_{form_name}.gif")
+            
+            save_static_plot(traj_data, pursuer_ids, evader_ids[0], filename=static_plot_path)
+            save_top_down_plot(traj_data, pursuer_ids, evader_ids[0], filename=top_down_plot_path)
+            save_relative_plot(traj_data, pursuer_ids, evader_ids[0], filename=relative_plot_path)
+            create_gif(traj_data, pursuer_ids, evader_ids[0], filename=gif_path)
     elif args.save_media:
-        print("No successful episodes were recorded, so no media will be generated.")
+        print("No successful episodes were recorded for some formations, so no media will be generated for them.")
 
 
 if __name__ == "__main__":
@@ -361,8 +376,8 @@ if __name__ == "__main__":
     parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="Environment dimension mode: 2=2D (default), 3=3D")
     parser.add_argument("--evader_policy_level", type=int, default=0, choices=[0, 1, 2], help="Evader policy: 0=Drift, 1=Random, 2=APF")
     
-    parser.add_argument("--test_episodes", type=int, default=20, help="Number of episodes to test for success rate")
-    parser.add_argument("--save_media", action="store_true", help="Save GIF and static plot for the first successful run")
+    parser.add_argument("--test_episodes", type=int, default=40, help="Number of episodes to test for success rate")
+    parser.add_argument("--save_media", action="store_true", help="Save GIF and static plot for the first successful run of each formation")
     
     parser.add_argument("--seed", type=int, default=42, help="Random seed for evaluation")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"], help="Device for inference")

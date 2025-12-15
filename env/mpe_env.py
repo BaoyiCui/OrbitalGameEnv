@@ -33,6 +33,54 @@ class MPEEnvCfg(PEEnvCfg):
     # 新的相位距离奖励权重
     reward_phase_dist_weight: float = 1.0
 
+    # === 失败重练机制 ===
+    replay_failed_prob: float = 0.6
+    max_failed_pool_size: int = 1000
+    
+    # === 初始生成安全参数 ===
+    init_min_separation: float = 5000.0  # 米
+
+    # === [新] 课程学习最终版 ===
+    start_ring_ratio: float = 1.0
+    final_ring_ratio: float = 0.5
+    formation_curriculum_end_step: int = 1_400_000
+    
+    # [新] 早停条件
+    early_stop_start_step: int = 1_400_000
+    early_stop_success_rate: float = 0.85
+
+
+import random
+from collections import deque
+
+class GlobalTrainManager:
+    """
+    用于跨多个环境实例共享状态的管理器。
+    所有 MPEEnv 实例将引用这个类的数据。
+    """
+    failed_seeds = []
+    current_ring_ratio = 1.0
+    
+    @classmethod
+    def add_failed_seed(cls, seed, max_size):
+        if seed not in cls.failed_seeds:
+            cls.failed_seeds.append(seed)
+            if len(cls.failed_seeds) > max_size:
+                cls.failed_seeds.pop(0)
+    
+    @classmethod
+    def get_failed_seed(cls):
+        if not cls.failed_seeds:
+            return None
+        idx = random.randint(0, len(cls.failed_seeds) - 1)
+        return cls.failed_seeds.pop(idx)
+
+    @classmethod
+    def update_ratios(cls, current_step: int, cfg: MPEEnvCfg):
+        """外部训练循环调用此函数更新课程进度"""
+        progress = np.clip(current_step / cfg.formation_curriculum_end_step, 0.0, 1.0)
+        cls.current_ring_ratio = cfg.start_ring_ratio - progress * (cfg.start_ring_ratio - cfg.final_ring_ratio)
+
 
 class MPEEnv(PEEnv):
     """
@@ -71,6 +119,8 @@ class MPEEnv(PEEnv):
 
         # 用于控制打印频率的步数计数器
         self.step_count = 0
+        self.current_episode_seed = None
+        self.current_formation_name = "unknown" # 用于Debug
 
     def observe(self, agent):
         return self._get_observations().get(agent)
@@ -357,110 +407,157 @@ class MPEEnv(PEEnv):
         return {a: False for a in self.agents}
 
     def step(self, actions: Dict[str, np.ndarray]):
-        self.step_count += 1
-        for a in self.agents:
-            dv_step = self._config.p_dv_step if a.startswith('p_') else self._config.e_dv_step
-            action = actions.get(a, np.zeros(3))
-            norm_action = np.linalg.norm(action)
-            if norm_action > dv_step: action = action / norm_action * dv_step
-            if norm_action > self.remain_Dvs[a]: action = action / norm_action * self.remain_Dvs[a]
-            self.states[a][3:] += action
-            self.remain_Dvs[a] = max(0, self.remain_Dvs[a] - np.linalg.norm(action))
-
-        for a in self.agents:
-            _, self.states[a] = self._orbit_lib.orbit_hpop(self._time, self.states[a], self._config.dt, self._config.hpop_in)
-        self._time += datetime.timedelta(seconds=self._config.dt)
-
-        observations = self._get_observations()
-        rewards, debug_reward_info = self._get_rewards(actions)
-        terminations, termination_reasons = self._get_terminations()
-        truncations = self._get_truncations()
-        self.terminations, self.truncations = terminations, truncations
-
-        if any(terminations.values()):
-            self.episode_statistics['total_episodes'] += 1
-            reason = list(termination_reasons.values())[0]
-            if reason == 'capture_success': self.episode_statistics['success_count'] += 1
-            elif reason == 'timeout':
-                self.episode_statistics['timeout_count'] += 1
-                for a in self.agents:
-                    if a.startswith('p_'): rewards[a] += self._config.reward_timeout_penalty
-            elif reason == 'fuel_out':
-                self.episode_statistics['fuelout_count'] += 1
-                for a in self.agents:
-                    if a.startswith('p_'): rewards[a] += self._config.reward_fuelout_penalty
-            if self.episode_statistics['total_episodes'] > 0:
-                self.episode_statistics['success_rate'] = self.episode_statistics['success_count'] / self.episode_statistics['total_episodes']
-
-        self.infos = {a: {} for a in self.agents}
-        for agent_id in self.agents:
-            self.infos[agent_id].update({
-                'termination_reason': termination_reasons.get(agent_id),
-                'episode_statistics': self.episode_statistics.copy()
-            })
-            if self._config.debug_rewards and agent_id in debug_reward_info:
-                self.infos[agent_id]['reward_components'] = debug_reward_info[agent_id]
-
-        for agent in list(self.agents):
-            if terminations.get(agent, False) or truncations.get(agent, False):
-                if agent in observations: self.infos[agent]['final_observation'] = observations[agent]
-                self.agents.remove(agent)
-        return observations, rewards, self.terminations, self.truncations, self.infos
+        observations, rewards, terminations, truncations, infos = super().step(actions)
+        
+        # 检查是否因为失败结束
+        any_done = any(terminations.values()) or any(truncations.values())
+        if any_done:
+            # 判断原因
+            reason = None
+            for info in infos.values():
+                if 'termination_reason' in info:
+                    reason = info['termination_reason']
+                    break
+            
+            # 如果不是成功，加入失败池
+            if reason != 'capture_success':
+                if self.current_episode_seed is not None:
+                    GlobalTrainManager.add_failed_seed(
+                        self.current_episode_seed, 
+                        self._config.max_failed_pool_size
+                    )
+            # 注意：如果成功了，不用做任何事。reset里如果它是pop出来的，它已经不在池子里了。
+            
+        return observations, rewards, terminations, truncations, infos
 
     def reset(self, seed=None, options=None):
+        force_formation = options.get('force_formation', None) if options else None
+
         if self._config.use_fixed_seed_for_reset: np.random.seed(42)
-        self.agents = self.possible_agents[:]
-        base_sma = 42166300.0
-
-        # === [修改] 2D/3D 初始化参数 ===
-        if self._config.dim_mode == 2:
-            ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+        
+        # === 1. 决定种子与阵型策略 ===
+        is_replay = False
+        
+        # 外部强制指定 Seed (评估模式)
+        if seed is not None:
+            self.current_episode_seed = seed
         else:
-            # 3D 模式 (你原来的代码这里也是0，如果需要真3D随机，可以在这里改 inc)
-            ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+            # 训练模式
+            if GlobalTrainManager.failed_seeds and np.random.random() < self._config.replay_failed_prob:
+                popped_seed = GlobalTrainManager.get_failed_seed()
+                if popped_seed is not None:
+                    self.current_episode_seed = popped_seed
+                    is_replay = True
+                else:
+                    self.current_episode_seed = np.random.randint(0, 1_000_000_000)
+            else:
+                self.current_episode_seed = np.random.randint(0, 1_000_000_000)
+        
+        np.random.seed(self.current_episode_seed)
+        
+        # === 2. 决定阵型 ===
+        if force_formation is not None:
+            chosen_formation = force_formation
+        else:
+            if is_replay:
+                pass
+            
+            r_ring = GlobalTrainManager.current_ring_ratio
+            r_others = (1.0 - r_ring) / 3.0
+            
+            formations = ['ring', 'cluster', 'string', 'pincer']
+            probs = [r_ring, r_others, r_others, r_others]
+            probs = np.array(probs) / np.sum(probs)
+            
+            chosen_formation = np.random.choice(formations, p=probs)
 
+        self.current_formation_name = chosen_formation
+
+        # === 3. 初始化对象 ===
+        self.agents = self.possible_agents[:]
         self.states = {}
+        
+        # --- Evader (Anchor) ---
+        base_sma = 42166300.0
+        ecc, inc, raan, argp = 0.0, 0.0, 0.0, 0.0
+        
         ta_eva = np.random.uniform(0.0, 2 * np.pi)
         eva_sma = base_sma
         if self.current_sma_perturb_km > 0:
             eva_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+        
         self.states['e_0'] = self._orbit_lib.coe2rv(np.array([eva_sma, ecc, inc, raan, argp, ta_eva]))
         
-        # 新版初始化逻辑: 以逃逸者为中心，在圆环内十字初始化追击者
-        inner_dist = self._config.dist_cap + self._config.e_init_dist_min_offset
-        outer_dist = self._config.dist_cap + self._config.e_init_dist_max_offset
-
-        # 1. 定义十字的“半径”：使用环的平均物理距离，并近似转为对轨道根数的影响
-        target_dist = np.random.uniform(inner_dist, outer_dist)
-        
-        # 2. 随机旋转十字
-        cross_rotation = np.random.uniform(0, 2 * np.pi)
-        angle_step = 2 * np.pi / self._config.num_p
-
-        # 3. 随机分配ID
+        # --- Pursuers (围绕圆环生成) ---
         pursuer_ids_shuffled = [f'p_{i}' for i in range(self._config.num_p)]
         np.random.shuffle(pursuer_ids_shuffled)
+        
+        min_r = self._config.dist_cap + self._config.e_init_dist_min_offset
+        max_r = self._config.dist_cap + self._config.e_init_dist_max_offset
+        
+        ring_base_angle = np.random.uniform(0, 2 * np.pi)
+        ring_shared_dist = np.random.uniform(min_r, max_r)
+        string_base_angle = np.random.uniform(0, 2 * np.pi)
+        pincer_axis_angle = np.random.uniform(0, 2 * np.pi)
+
+        generated_positions_2d = []
 
         for i, agent_id in enumerate(pursuer_ids_shuffled):
-            # 4. 计算每个追击者在十字上的角度
-            pursuer_angle_on_cross = cross_rotation + i * angle_step
-
-            # 5. 将十字坐标（极坐标）近似转换为对逃逸者轨道根数的偏移量
-            #    - 切向偏移 (Along-track) -> 修改真近点角 ta
-            #    - 径向偏移 (Radial) -> 修改半长轴 sma
-            #    这是一个简化近似，但在GEO大圆轨道上效果合理
-            angle_radius = target_dist / base_sma
-            ta_offset = angle_radius * np.cos(pursuer_angle_on_cross)
-            sma_offset = target_dist * np.sin(pursuer_angle_on_cross)
-
-            # 6. 计算并设置追击者状态
-            pur_sma = eva_sma + sma_offset
-            ta_pur = (ta_eva + ta_offset) % (2 * np.pi)
-
-            if self.current_sma_perturb_km > 0:
-                pur_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+            valid_pos = False
+            attempt = 0
             
-            self.states[agent_id] = self._orbit_lib.coe2rv(np.array([pur_sma, ecc, inc, raan, argp, ta_pur]))
+            while not valid_pos:
+                attempt += 1
+                if attempt > 100: 
+                    pass
+                
+                if chosen_formation == 'ring':
+                    angle = ring_base_angle + i * (2 * np.pi / self._config.num_p)
+                    dist = ring_shared_dist + np.random.uniform(-500, 500)
+                    angle += np.random.uniform(-0.05, 0.05)
+                    
+                elif chosen_formation == 'cluster':
+                    angle = np.random.uniform(0, 2 * np.pi)
+                    dist = np.random.uniform(min_r, max_r)
+                    
+                elif chosen_formation == 'string':
+                    lane_dist = np.random.uniform(min_r, max_r)
+                    separation_dist = self._config.init_min_separation * np.random.uniform(1.2, 2.0)
+                    angle_step = separation_dist / lane_dist
+                    center_offset_idx = i - (self._config.num_p - 1) / 2.0
+                    angle = string_base_angle + center_offset_idx * angle_step
+                    dist_noise = np.random.uniform(-1000, 1000)
+                    dist = np.clip(lane_dist + dist_noise, min_r, max_r)
+                    angle += np.random.uniform(-0.01, 0.01)
+                    
+                elif chosen_formation == 'pincer':
+                    side_offset = 0 if i % 2 == 0 else np.pi
+                    angle = pincer_axis_angle + side_offset + np.random.uniform(-np.pi/6, np.pi/6)
+                    dist = np.random.uniform(min_r, max_r)
+
+                pos_2d = np.array([dist * np.cos(angle), dist * np.sin(angle)])
+                
+                is_colliding = False
+                if attempt <= 100 and len(generated_positions_2d) > 0:
+                    for exist_p in generated_positions_2d:
+                        if np.linalg.norm(pos_2d - exist_p) < self._config.init_min_separation:
+                            is_colliding = True
+                            break
+                
+                if not is_colliding or attempt > 100:
+                    valid_pos = True
+                    generated_positions_2d.append(pos_2d)
+                    
+                    ta_offset = (dist / base_sma) * np.cos(angle)
+                    sma_offset = dist * np.sin(angle)
+                    
+                    pur_sma = eva_sma + sma_offset
+                    pur_ta = (ta_eva + ta_offset) % (2 * np.pi)
+                    
+                    if self.current_sma_perturb_km > 0:
+                        pur_sma += np.random.uniform(-self.current_sma_perturb_km * 1000, self.current_sma_perturb_km * 1000)
+                    
+                    self.states[agent_id] = self._orbit_lib.coe2rv(np.array([pur_sma, ecc, inc, raan, argp, pur_ta]))
 
         self._time = self._config.init_utc
         self.remain_Dvs = {a: (self._config.p_init_dv if a.startswith('p_') else self._config.e_init_dv) for a in self.agents}

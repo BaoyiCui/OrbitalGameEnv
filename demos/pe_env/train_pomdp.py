@@ -17,6 +17,7 @@ from gymnasium import spaces
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
+from env.mpe_env import GlobalTrainManager
 from env.hrg_models import HRG_Student_Encoder, Aligned_Teacher
 
 class TrainConfig:
@@ -302,7 +303,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     # 日志记录
     params_path = run_dir / "all_params.txt"
     with open(params_path, "w") as f:
-        f.write("--- TrainConfig ---\n")
+        f.write("--- TrainConfig ---")
         for key, value in vars(cfg).items():
             f.write(f"{key}: {value}\n")
         f.write("\n--- MPE_POMDP_EnvCfg ---\n")
@@ -312,7 +313,11 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
         for key, value in sorted(all_params.items()):
             f.write(f"{key}: {value}\n")
     writer = SummaryWriter(str(run_dir))
+    
+    # [新增] 初始化课程学习日志文件并写入表头
     progress_path = run_dir / "curriculum_progress_log.txt"
+    with open(progress_path, "w") as f:
+        f.write("Update(Upd),GlobalStep(GS),SuccessRate(SR),Distance_m(M),Fuel_dv(DV),RingRatio(RR),EventType(Event)\n")
 
     # === [关键修改] 创建并行环境列表 (简单列表实现，非SubprocVecEnv以避免复杂性) ===
     # 注意: MPE_POMDP_Env 不是线程安全的，如果用多线程需要加锁。这里用单线程循环模拟并行步进。
@@ -401,6 +406,13 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     
     for update in range(1, num_updates + 1):
         sigint_state['update'] = update # 告知信号处理器当前的 update 数
+
+        # === [新增] 更新阵型课程概率 ===
+        GlobalTrainManager.update_ratios(global_step, env_cfg)
+        
+        # 打印一下当前的概率分布看看 (可选)
+        if global_step > 0 and (update % 100 == 0):
+             print(f"Curriculum Update: Ring Ratio = {GlobalTrainManager.current_ring_ratio:.3f}, Failed Pool Size = {len(GlobalTrainManager.failed_seeds)}")
 
         # === [关键修改] 学习率衰减 (Linear Annealing) ===
         if cfg.anneal_lr:
@@ -636,39 +648,33 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
             current_sr = np.mean(recent_episode_stats)
             writer.add_scalar("charts/success_rate", current_sr, global_step)
 
-            # --- 1. 升级逻辑 (增加 Stability 检查) ---
-            if current_sr >= cfg.success_rate_threshold:
-                curriculum_stability_counter += 1
-            else:
-                curriculum_stability_counter = 0 # 中断则重置
+            # 1. 物理难度是否达标
+            difficulty_reached = (current_m >= cfg.target_m and 
+                                  current_p_init_dv <= cfg.min_p_init_dv)
             
-            # 只有连续 N 次达标才升级
-            if curriculum_stability_counter >= cfg.curriculum_stability_required:
-                changed = False
-                if current_m < cfg.target_m:
-                    current_m = min(current_m + cfg.m_increment, cfg.target_m)
-                    changed = True
-                if current_p_init_dv > cfg.min_p_init_dv:
-                    current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
-                    changed = True
-                
-                if changed:
-                    print(f"\n*** [UPGRADE] SR={current_sr:.2f} (Stable {curriculum_stability_counter}). New: m={current_m}, Fuel={current_p_init_dv} ***")
-                    # 应用到所有环境
-                    for env in envs:
-                        env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
-                    recent_episode_stats.clear()
-                    curriculum_stability_counter = 0 # 升级后重置计数
-                    
-                    # 记录日志
-                    with open(progress_path, "a") as f:
-                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_p_init_dv}\tUPGRADE\n")
+            # 2. 阵型课程是否走完
+            formation_reached = (GlobalTrainManager.current_ring_ratio <= env_cfg.final_ring_ratio + 1e-6)
 
-                # [新增] 早停检查: 无论本次是否升级(changed)，只要满足课程目标就检查
-                if current_m >= cfg.target_m and \
-                   current_p_init_dv <= cfg.min_p_init_dv:
-                    print(f"\n--- [EARLY STOPPING] Curriculum target reached at update {update}. Stopping training. ---")
-                    break # 退出主训练循环
+            # 结合所有条件触发早停
+            if (global_step >= env_cfg.early_stop_start_step and 
+                current_sr >= env_cfg.early_stop_success_rate and
+                difficulty_reached and 
+                formation_reached):
+                
+                print(f"\n--- [EARLY STOPPING] All conditions met (Step >= {env_cfg.early_stop_start_step}, SR >= {env_cfg.early_stop_success_rate}, Difficulty & Formation targets reached). Stopping training at update {update}. ---")
+                # 在退出前，执行一次模型保存
+                ckpt_dir = run_dir / "checkpoints"
+                ckpt_dir.mkdir(exist_ok=True)
+                ckpt_path = ckpt_dir / f"ckpt_early_stop_{update}.pth"
+                checkpoint_data = { 'agent_state_dict': agent.state_dict(), 'env_cfg': vars(env_cfg) }
+                torch.save(checkpoint_data, ckpt_path)
+                print(f"--- Early stopping checkpoint saved to {ckpt_path} ---")
+                break 
+                
+            elif difficulty_reached and not formation_reached:
+                # 可选：打印提示，告知用户虽然物理通关了，但在等阵型多样化
+                if update % 10 == 0:
+                    print(f"--- [Wait] Difficulty maxed, waiting for formation curriculum (Ratio: {GlobalTrainManager.current_ring_ratio:.2f} > {env_cfg.final_ring_ratio}) ---")
 
             # --- 2. 降级逻辑 (救命回退) ---
             elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
@@ -678,13 +684,17 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
                 current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
                 
+                # [新增] 同时重置阵型课程
+                GlobalTrainManager.current_ring_ratio = env_cfg.start_ring_ratio
+                print(f"    Formation curriculum reset to Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
+
                 for env in envs:
                     env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
                 recent_episode_stats.clear()
                 curriculum_stability_counter = 0
                 
                 with open(progress_path, "a") as f:
-                        f.write(f"{update}\t{global_step}\t{current_sr:.3f}\t{current_m}\t{current_p_init_dv}\tROLLBACK\n")
+                        f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK\n")
 
     # [新增] 保存训练完成的最终模型
     print(f"\n--- 训练结束于 update {update}。保存最终模型... ---")
