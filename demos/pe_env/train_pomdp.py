@@ -642,27 +642,24 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
             torch.save(checkpoint_data, ckpt_path)
             print(f"--- Checkpoint saved to {ckpt_path} at update {update} ---")
 
-        # === [关键修改] 鲁棒的课程学习逻辑 ===
-        # [修改点 B] 采用滑动平均值计算成功率，避免多环境数据混淆
+        # === [用户请求修改] 课程学习与早停逻辑 ===
         if len(recent_episode_stats) >= cfg.curriculum_check_episodes:
             current_sr = np.mean(recent_episode_stats)
             writer.add_scalar("charts/success_rate", current_sr, global_step)
 
-            # 1. 物理难度是否达标
-            difficulty_reached = (current_m >= cfg.target_m and 
-                                  current_p_init_dv <= cfg.min_p_init_dv)
+            # --- 1. 早停逻辑 ---
+            # 条件1: 物理课程达标 (燃料最低, 距离最远)
+            physical_difficulty_reached = (current_m >= cfg.target_m and 
+                                          current_p_init_dv <= cfg.min_p_init_dv)
             
-            # 2. 阵型课程是否走完
-            formation_reached = (GlobalTrainManager.current_ring_ratio <= env_cfg.final_ring_ratio + 1e-6)
+            # 条件2: 阵型课程结束 (global_step > 1.4M)
+            formation_curriculum_reached = (global_step >= env_cfg.formation_curriculum_end_step)
 
-            # 结合所有条件触发早停
-            if (global_step >= env_cfg.early_stop_start_step and 
-                current_sr >= env_cfg.early_stop_success_rate and
-                difficulty_reached and 
-                formation_reached):
-                
-                print(f"\n--- [EARLY STOPPING] All conditions met (Step >= {env_cfg.early_stop_start_step}, SR >= {env_cfg.early_stop_success_rate}, Difficulty & Formation targets reached). Stopping training at update {update}. ---")
-                # 在退出前，执行一次模型保存
+            # 条件3: 胜率高于0.8
+            high_success_rate = current_sr > 0.8
+
+            if physical_difficulty_reached and formation_curriculum_reached and high_success_rate:
+                print(f"\n--- [EARLY STOPPING] Conditions met (SR > 0.8, Physical & Formation curriculum finished). Stopping training at update {update}. ---")
                 ckpt_dir = run_dir / "checkpoints"
                 ckpt_dir.mkdir(exist_ok=True)
                 ckpt_path = ckpt_dir / f"ckpt_early_stop_{update}.pth"
@@ -670,21 +667,15 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 torch.save(checkpoint_data, ckpt_path)
                 print(f"--- Early stopping checkpoint saved to {ckpt_path} ---")
                 break 
-                
-            elif difficulty_reached and not formation_reached:
-                # 可选：打印提示，告知用户虽然物理通关了，但在等阵型多样化
-                if update % 10 == 0:
-                    print(f"--- [Wait] Difficulty maxed, waiting for formation curriculum (Ratio: {GlobalTrainManager.current_ring_ratio:.2f} > {env_cfg.final_ring_ratio}) ---")
-
-            # --- 2. 升级逻辑 (课程推进) ---
-            elif current_sr >= cfg.success_rate_threshold and not difficulty_reached:
+            
+            # --- 2. 课程难度升降级 (在不早停的情况下) ---
+            # 升级逻辑
+            elif current_sr >= cfg.success_rate_threshold and not physical_difficulty_reached:
                 curriculum_stability_counter += 1
                 print(f"--- [Progress] SR={current_sr:.2f} >= {cfg.success_rate_threshold}. Stability count: {curriculum_stability_counter}/{cfg.curriculum_stability_required} ---")
                 
                 if curriculum_stability_counter >= cfg.curriculum_stability_required:
                     print(f"\n+++ [UPGRADE] SR={current_sr:.2f} is stable. Increasing difficulty. +++")
-                    
-                    # 升级操作
                     current_m = min(current_m + cfg.m_increment, cfg.target_m)
                     current_p_init_dv = max(current_p_init_dv - cfg.p_init_dv_decrement, cfg.min_p_init_dv)
                     
@@ -692,26 +683,19 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                         env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
                     
                     print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
-                    
-                    # 清空统计数据和计数器，重新评估新难度
                     recent_episode_stats.clear()
                     curriculum_stability_counter = 0
                     
-                    # 记录日志
                     with open(progress_path, "a") as f:
                         f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},UPGRADE\n")
 
-            # --- 3. 降级逻辑 (救命回退) ---
+            # 降级逻辑
             elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
                 print(f"\n!!! [ROLLBACK] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
-                
-                # 回退操作：难度大幅降低
                 current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
                 current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
                 
                 print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
-
-                # [新增] 同时重置阵型课程
                 GlobalTrainManager.current_ring_ratio = env_cfg.start_ring_ratio
                 print(f"    Formation curriculum reset to Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
 
@@ -721,11 +705,10 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 curriculum_stability_counter = 0
                 
                 with open(progress_path, "a") as f:
-                        f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK\n")
+                    f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK\n")
             
-            # --- 4. 维持当前难度 (未达标) ---
+            # 维持难度
             else:
-                # 如果成功率在回退和升级阈值之间，重置稳定性计数器
                 if curriculum_stability_counter > 0:
                     print(f"--- [Maintain] SR={current_sr:.2f} is not stable enough. Resetting stability counter. ---")
                     curriculum_stability_counter = 0
