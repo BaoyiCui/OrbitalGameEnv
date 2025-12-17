@@ -53,7 +53,7 @@ class TrainConfig:
     success_rate_threshold: float = 0.8
     
     # [新增] 课程稳定性参数
-    curriculum_stability_required: int = 3  # 需要连续3次达标才升级
+    curriculum_stability_required: int = 5          # 需要连续 5 次评估达标才升级
     curriculum_rollback_threshold: float = 0.4 # 成功率低于0.4时回退
 
     # 距离定义：m = 距离捕获边界的距离
@@ -690,22 +690,35 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                         f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},UPGRADE\n")
 
             # 降级逻辑
-            elif current_sr < cfg.curriculum_rollback_threshold and current_m > cfg.initial_m:
-                print(f"\n!!! [ROLLBACK] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
-                current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
-                current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
-                
-                print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
-                GlobalTrainManager.current_ring_ratio = env_cfg.start_ring_ratio
-                print(f"    Formation curriculum reset to Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
+            elif current_sr < cfg.curriculum_rollback_threshold:
+                # 如果物理课程已经达标，只回退阵型课程
+                if physical_difficulty_reached:
+                    print(f"\n!!! [ROLLBACK-Formation] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. Physical curriculum finished. Rolling back formation only. !!!")
+                    # 将 ring_ratio 回退 0.1，但不低于初始值
+                    GlobalTrainManager.current_ring_ratio = min(GlobalTrainManager.current_ring_ratio + 0.1, env_cfg.start_ring_ratio)
+                    print(f"    New Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
+                    
+                    with open(progress_path, "a") as f:
+                        f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK_FORMATION\n")
 
-                for env in envs:
-                    env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
+                # 如果物理课程未达标，回退物理课程和阵型
+                elif current_m > cfg.initial_m:
+                    print(f"\n!!! [ROLLBACK-Physical] SR={current_sr:.2f} < {cfg.curriculum_rollback_threshold}. DETECTED COLLAPSE !!!")
+                    current_m = max(current_m - cfg.m_increment * 2, cfg.initial_m)
+                    current_p_init_dv = min(current_p_init_dv + cfg.p_init_dv_decrement * 2, cfg.initial_p_init_dv)
+                    
+                    print(f"    New Difficulty: m={current_m}, Fuel={current_p_init_dv}")
+                    GlobalTrainManager.current_ring_ratio = env_cfg.start_ring_ratio
+                    print(f"    Formation curriculum reset to Ring Ratio: {GlobalTrainManager.current_ring_ratio:.2f}")
+
+                    for env in envs:
+                        env.set_difficulty_parameters(m_distance=current_m, p_init_dv=current_p_init_dv)
+                    
+                    with open(progress_path, "a") as f:
+                        f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK_PHYSICAL\n")
+
                 recent_episode_stats.clear()
                 curriculum_stability_counter = 0
-                
-                with open(progress_path, "a") as f:
-                    f.write(f"{update},{global_step},{current_sr:.3f},{current_m},{current_p_init_dv},{GlobalTrainManager.current_ring_ratio:.3f},ROLLBACK\n")
             
             # 维持难度
             else:

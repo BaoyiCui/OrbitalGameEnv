@@ -17,7 +17,7 @@ initial_episode_length: 36000
 curriculum_check_episodes: 50
 success_rate_threshold: 0.8
 initial_m: 2000.0
-target_m: 30000.0
+target_m: 40000.0
 m_increment: 2000.0
 ring_width_delta: 20000.0
 initial_p_init_dv: 500.0
@@ -28,7 +28,7 @@ device: cuda
 debug_critic: False
 debug_observation: False
 resume_from_checkpoint: None
-run_name: Dec 15: new reset method
+run_name: Dec 16: repeat; ring_ratio
 
 --- MPE_POMDP_EnvCfg ---
 evader_policy_type: Scripted
@@ -128,13 +128,13 @@ reward_phase_dist_weight: 1.0
 reward_time_weight: 0.02
 reward_timeout_penalty: -9
 ring_width_delta: 20000.0
-run_name: Dec 15: new reset method
+run_name: Dec 16: repeat; ring_ratio
 seed: 42
 sma_perturb_end_update: 1500
 sma_perturb_km_max: 10.0
 sma_perturb_start_update: 500
 success_rate_threshold: 0.8
-target_m: 30000.0
+target_m: 40000.0
 total_timesteps: 5000000
 update_epochs: 5
 use_fixed_seed_for_reset: False
