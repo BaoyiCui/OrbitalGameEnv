@@ -87,6 +87,7 @@ class MPE_POMDP_Env(MPEEnv):
     def __init__(self, config: MPE_POMDP_EnvCfg = MPE_POMDP_EnvCfg()):
         super().__init__(config)
         self._config: MPE_POMDP_EnvCfg = config
+        self.agent_memory_orb_feat = {} # 为轨道特征新增记忆模块
 
         # 注册 RV2COE 函数 (如果 OrbitLib 没封装，我们在这里手动设置一下以防万一)
         if hasattr(self, '_orbit_lib') and hasattr(self._orbit_lib, 'orbit_lib_c') and self._orbit_lib.orbit_lib_c is not None:
@@ -216,6 +217,8 @@ class MPE_POMDP_Env(MPEEnv):
             # 重置 Last Known
             if hasattr(self, 'agent_memory_evader_lvlh'):
                 self.agent_memory_evader_lvlh.clear()
+            if hasattr(self, 'agent_memory_orb_feat'):
+                self.agent_memory_orb_feat.clear()
 
             for evader_id in self.evader_ids:
                 self.evader_history_buffers[evader_id].clear()
@@ -366,12 +369,7 @@ class MPE_POMDP_Env(MPEEnv):
         observations = {}
         all_states = {aid: self.states[aid] for aid in self.possible_agents if aid in self.states}
         
-        # 获取首个逃逸者的真实状态用于计算相位（假设它是主要目标）
-        # 注意：这里我们使用真实状态来计算轨道要素差异，模拟星历表推算能力
-        # 即使视野丢失，追击者通常也知道目标的轨道根数（TLE），只是不知道精确机动后的位置
-        primary_evader_state = None
-        if self.evader_ids and self.evader_ids[0] in self.states:
-            primary_evader_state = self.states[self.evader_ids[0]]
+        primary_evader_id = self.evader_ids[0] if self.evader_ids else None
 
         for agent_id in self.pursuer_ids:
             if agent_id not in all_states: continue
@@ -387,7 +385,7 @@ class MPE_POMDP_Env(MPEEnv):
             vel_sym = self._symlog(my_vel)
             fuel = np.array([self.remain_Dvs.get(agent_id, 0.0) / self._config.p_init_dv])
             
-            # 2. 目标信息 (Last Known, LVLH, Symlog)
+            # 2. 目标位置信息 (Last Known, LVLH, Symlog)
             target_feat = []
             for eid in self.evader_ids:
                 is_visible = (self.obs_counters[eid] % self._config.obs_interval == 0)
@@ -398,21 +396,18 @@ class MPE_POMDP_Env(MPEEnv):
                 
                 if eid in all_states:
                     if is_visible or mem_key not in self.agent_memory_evader_lvlh:
-                        # 可见，或者第一次初始化：计算真实值
                         e_state = all_states[eid]
                         rel_pos, _ = eci_to_lvlh_relative(my_state, e_state[:3], None)
                         if rel_pos is not None:
                             self.agent_memory_evader_lvlh[mem_key] = rel_pos
                     
-                    # 取出记忆中的值 (Symlog处理)
                     if mem_key in self.agent_memory_evader_lvlh:
                         target_feat.append(self._symlog(self.agent_memory_evader_lvlh[mem_key]))
                     else:
                         target_feat.append(np.zeros(3))
                 else:
-                    # 如果目标不存在，用零填充
                     target_feat.append(np.zeros(3))
-            
+
             # 3. 队友信息 (LVLH)
             teammate_data = []
             for i in range(self._config.num_p):
@@ -429,20 +424,27 @@ class MPE_POMDP_Env(MPEEnv):
                     else:
                         teammate_data.append(np.zeros(7))
             
-            # 拼接: [Self(8), Target(3*Ne), Teammates(...)]
+            # 4. 轨道相位特征 (使用 Last Known State)
+            current_orbital_feat = np.zeros(3)
+            if primary_evader_id and primary_evader_id in all_states:
+                is_primary_visible = (self.obs_counters[primary_evader_id] % self._config.obs_interval == 0)
+                orb_mem_key = (agent_id, 'orb_feat')
+
+                if is_primary_visible:
+                    # 可见：计算真实特征并更新记忆
+                    real_orb_feat = self._get_orbital_features(my_state, all_states[primary_evader_id])
+                    self.agent_memory_orb_feat[orb_mem_key] = real_orb_feat
+                    current_orbital_feat = real_orb_feat
+                else:
+                    # 不可见：使用记忆中的特征
+                    current_orbital_feat = self.agent_memory_orb_feat.get(orb_mem_key, np.zeros(3))
+
+            # 5. 拼接所有观测
             obs_list = [alt_dev, pos_dir, vel_sym, fuel] + target_feat
             if teammate_data:
                 obs_list.append(np.concatenate(teammate_data))
-
-            # === [新增] 4. 轨道相位特征 ===
-            if primary_evader_state is not None:
-                orbital_features = self._get_orbital_features(my_state, primary_evader_state)
-            else:
-                orbital_features = np.zeros(3)
+            obs_list.append(current_orbital_feat)
             
-            obs_list.append(orbital_features)
-            # ============================
-
             observations[agent_id] = np.concatenate(obs_list)
 
         for eid in self.evader_ids:
