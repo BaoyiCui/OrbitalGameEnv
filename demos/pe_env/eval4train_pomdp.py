@@ -39,7 +39,7 @@ def set_axes_equal(ax):
     ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
     ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
-def save_static_plot(traj_data, pursuer_ids, evader_id, filename):
+def save_static_plot(traj_data, pursuer_ids, evader_id, filename, formation_name):
     """生成并保存在绝对坐标系下的静态轨迹图"""
     print(f"Generating static trajectory plot...")
     fig = plt.figure(figsize=(12, 10))
@@ -74,15 +74,15 @@ def save_static_plot(traj_data, pursuer_ids, evader_id, filename):
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
     ax.set_zlabel('Z (km)')
-    ax.set_title('Absolute Trajectory')
-    ax.legend()
+    ax.set_title(f'Absolute Trajectory - {formation_name.capitalize()}')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=5)
     set_axes_equal(ax)
 
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"Static plot saved to {filename}")
 
-def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
+def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename, formation_name, capture_radius):
     """生成并保存在Z轴俯视视角下的2D静态轨迹图"""
     print(f"Generating top-down (Z-axis view) static trajectory plot...")
     fig = plt.figure(figsize=(10, 10))
@@ -95,6 +95,8 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
 
     scale = 1000.0 # m to km
     
+    all_x, all_y = [], []
+
     # 追击者轨迹
     colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
     for i, pid in enumerate(pursuer_ids):
@@ -103,6 +105,8 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
             ax.plot(pos[:,0], pos[:,1], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
             ax.scatter(pos[0,0], pos[0,1], marker='o', color=colors[i], s=30, alpha=0.8, label=f'P{i} Start')
             ax.scatter(pos[-1,0], pos[-1,1], marker='x', color=colors[i], s=60, linewidth=2, label=f'P{i} End')
+            all_x.extend(pos[:,0])
+            all_y.extend(pos[:,1])
 
     # 逃逸者轨迹
     if evader_id in traj_data:
@@ -110,11 +114,32 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
         ax.plot(pos[:,0], pos[:,1], label='Evader', color='red', linestyle='--', linewidth=1.5, alpha=0.8)
         ax.scatter(pos[0,0], pos[0,1], marker='o', color='red', s=30, alpha=0.8, label='Evader Start')
         ax.scatter(pos[-1,0], pos[-1,1], marker='*', color='red', s=100, label='Evader End')
+        all_x.extend(pos[:,0])
+        all_y.extend(pos[:,1])
+        
+        # 绘制捕获半径
+        radius_km = capture_radius / scale
+        final_evader_pos = pos[-1]
+        capture_circle = plt.Circle((final_evader_pos[0], final_evader_pos[1]), radius_km, color='green', linestyle='--', fill=False, label='Capture Radius', zorder=5)
+        ax.add_artist(capture_circle)
+
+    if all_x and all_y:
+        x_min, x_max = min(all_x), max(all_x)
+        y_min, y_max = min(all_y), max(all_y)
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        max_range = max(x_range, y_range) * 1.1  # 10% margin
+
+        x_center = (x_min + x_max) / 2
+        y_center = (y_min + y_max) / 2
+        
+        ax.set_xlim(x_center - max_range / 2, x_center + max_range / 2)
+        ax.set_ylim(y_center - max_range / 2, y_center + max_range / 2)
 
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
-    ax.set_title('Top-Down Trajectory (Z-axis view)')
-    ax.legend()
+    ax.set_title(f'Top-Down Trajectory - {formation_name.capitalize()} (Z-axis view)')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=6)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True)
 
@@ -122,7 +147,7 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename):
     plt.close(fig)
     print(f"Top-down plot saved to {filename}")
 
-def save_relative_plot(traj_data, pursuer_ids, evader_id, filename):
+def save_relative_plot(traj_data, pursuer_ids, evader_id, filename, formation_name, capture_radius):
     """生成并保存以逃逸者为中心的2D相对轨迹图"""
     print(f"Generating relative trajectory plot...")
     fig = plt.figure(figsize=(10, 10))
@@ -135,12 +160,18 @@ def save_relative_plot(traj_data, pursuer_ids, evader_id, filename):
         plt.close(fig)
         return
 
+    # 绘制捕获半径
+    radius_km = capture_radius / scale
+    capture_circle = plt.Circle((0, 0), radius_km, color='green', linestyle='--', fill=False, label='Capture Radius', zorder=5)
+    ax.add_artist(capture_circle)
+
     evader_traj = np.array(traj_data[evader_id])
     
     # 逃逸者在中心
     ax.scatter(0, 0, marker='*', color='red', s=150, label='Evader (Reference)', zorder=10)
 
     colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
+    all_rel_x, all_rel_y = [0], [0]
     for i, pid in enumerate(pursuer_ids):
         if pid in traj_data:
             pursuer_traj = np.array(traj_data[pid])
@@ -152,11 +183,26 @@ def save_relative_plot(traj_data, pursuer_ids, evader_id, filename):
             ax.plot(relative_traj[:,0], relative_traj[:,1], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
             ax.scatter(relative_traj[0,0], relative_traj[0,1], marker='o', color=colors[i], s=40, label=f'P{i} Start')
             ax.scatter(relative_traj[-1,0], relative_traj[-1,1], marker='x', color=colors[i], s=80, linewidth=2, label=f'P{i} End')
+            all_rel_x.extend(relative_traj[:,0])
+            all_rel_y.extend(relative_traj[:,1])
+
+    if all_rel_x and all_rel_y:
+        x_min, x_max = min(all_rel_x), max(all_rel_x)
+        y_min, y_max = min(all_rel_y), max(all_rel_y)
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        max_range = max(x_range, y_range) * 1.1 # 10% margin
+
+        x_center = (x_min + x_max) / 2
+        y_center = (y_min + y_max) / 2
+
+        ax.set_xlim(x_center - max_range / 2, x_center + max_range / 2)
+        ax.set_ylim(y_center - max_range / 2, y_center + max_range / 2)
 
     ax.set_xlabel('Relative X (km)')
     ax.set_ylabel('Relative Y (km)')
-    ax.set_title('Relative Trajectory to Evader (Top-Down View)')
-    ax.legend()
+    ax.set_title(f'Relative Trajectory to Evader - {formation_name.capitalize()}')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=6)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True)
     
@@ -164,7 +210,7 @@ def save_relative_plot(traj_data, pursuer_ids, evader_id, filename):
     plt.close(fig)
     print(f"Relative plot saved to {filename}")
 
-def create_gif(traj_data, pursuer_ids, evader_id, filename, frame_skip=5):
+def create_gif(traj_data, pursuer_ids, evader_id, filename, formation_name, capture_radius, frame_skip=5):
     """创建并保存以逃逸者为中心的相对位置GIF"""
     print(f"Generating relative trajectory GIF...")
     
@@ -173,48 +219,58 @@ def create_gif(traj_data, pursuer_ids, evader_id, filename, frame_skip=5):
         return
 
     evader_traj = np.array(traj_data[evader_id])
-    
+    scale = 1000.0 # m to km
+
+    # 预先计算所有相对轨迹并找到最大范围，以固定绘图区域
+    all_rel_x, all_rel_y = [0], [0]
+    relative_trajs = {}
+    for pid in pursuer_ids:
+        if pid in traj_data:
+            pursuer_traj = np.array(traj_data[pid])
+            min_len = min(len(evader_traj), len(pursuer_traj))
+            rel_traj = (pursuer_traj[:min_len] - evader_traj[:min_len]) / scale
+            relative_trajs[pid] = rel_traj
+            if rel_traj.size > 0:
+                all_rel_x.extend(rel_traj[:, 0])
+                all_rel_y.extend(rel_traj[:, 1])
+
+    # 确定一个能包含所有帧的固定绘图范围，中心为逃逸者(0,0)
+    global_max_range = max(np.abs(all_rel_x).max(), np.abs(all_rel_y).max()) * 1.2 + 5  # 20%边距 + 5km缓冲
+
     # 找到所有轨迹中的最大长度
-    max_len = 0
-    if evader_id in traj_data:
-        max_len = len(traj_data[evader_id])
+    max_len = len(evader_traj)
     for pid in pursuer_ids:
         if pid in traj_data:
             max_len = max(max_len, len(traj_data[pid]))
 
     images = []
     colors = plt.cm.jet(np.linspace(0, 1, len(pursuer_ids)))
-    scale = 1000.0 # m to km
+    radius_km = capture_radius / scale
 
     for t in tqdm(range(0, max_len, frame_skip), desc="Creating GIF frames"):
         fig = plt.figure(figsize=(8, 8))
         ax = fig.add_subplot(111)
         
+        # 绘制捕获半径
+        capture_circle = plt.Circle((0, 0), radius_km, color='green', linestyle='--', fill=False, label='Capture Radius', zorder=5)
+        ax.add_artist(capture_circle)
+
         # 逃逸者在中心
         ax.scatter(0, 0, marker='*', color='red', s=150, label='Evader', zorder=10)
 
-        all_x = [0]
-        all_y = [0]
-
         for i, pid in enumerate(pursuer_ids):
-            if pid in traj_data and t < len(traj_data[pid]) and t < len(evader_traj):
-                pursuer_pos = np.array(traj_data[pid][t])
-                evader_pos = np.array(evader_traj[t])
-                relative_pos = (pursuer_pos - evader_pos) / scale
-                
+            if pid in relative_trajs and t < len(relative_trajs[pid]):
+                relative_pos = relative_trajs[pid][t]
                 ax.scatter(relative_pos[0], relative_pos[1], marker='o', color=colors[i], s=100, label=f'Pursuer {i}')
-                all_x.append(relative_pos[0])
-                all_y.append(relative_pos[1])
 
-        # 动态调整坐标轴范围
-        max_range = max(np.abs(all_x).max(), np.abs(all_y).max()) * 1.2 + 5 # 加上一点余量
-        ax.set_xlim(-max_range, max_range)
-        ax.set_ylim(-max_range, max_range)
+        # 对所有帧使用固定的全局范围
+        ax.set_xlim(-global_max_range, global_max_range)
+        ax.set_ylim(-global_max_range, global_max_range)
         
         ax.set_xlabel('Relative X (km)')
         ax.set_ylabel('Relative Y (km)')
-        ax.set_title(f'Relative Positions at Step {t}')
-        ax.legend()
+        ax.set_title(f'Relative Positions - {formation_name.capitalize()} (Step {t})')
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), fancybox=True, shadow=False, ncol=6)
         ax.grid(True)
         ax.set_aspect('equal', adjustable='box')
 
@@ -351,6 +407,7 @@ def run_eval(args):
     # --- 5. 生成媒体文件 ---
     if media_saved_trajs and args.save_media:
         print("\n--- Generating Media for First Successful Run of Each Formation ---")
+        capture_radius = env_cfg.dist_cap
         for form_name, traj_data in media_saved_trajs.items():
             print(f"\n--- Generating for '{form_name}' formation ---")
             static_plot_path = os.path.join(output_dir, f"trajectory_static_3D_{form_name}.png")
@@ -358,10 +415,10 @@ def run_eval(args):
             relative_plot_path = os.path.join(output_dir, f"trajectory_relative_2D_{form_name}.png")
             gif_path = os.path.join(output_dir, f"trajectory_relative_{form_name}.gif")
             
-            save_static_plot(traj_data, pursuer_ids, evader_ids[0], filename=static_plot_path)
-            save_top_down_plot(traj_data, pursuer_ids, evader_ids[0], filename=top_down_plot_path)
-            save_relative_plot(traj_data, pursuer_ids, evader_ids[0], filename=relative_plot_path)
-            create_gif(traj_data, pursuer_ids, evader_ids[0], filename=gif_path)
+            save_static_plot(traj_data, pursuer_ids, evader_ids[0], filename=static_plot_path, formation_name=form_name)
+            save_top_down_plot(traj_data, pursuer_ids, evader_ids[0], filename=top_down_plot_path, formation_name=form_name, capture_radius=capture_radius)
+            save_relative_plot(traj_data, pursuer_ids, evader_ids[0], filename=relative_plot_path, formation_name=form_name, capture_radius=capture_radius)
+            create_gif(traj_data, pursuer_ids, evader_ids[0], filename=gif_path, formation_name=form_name, capture_radius=capture_radius)
     elif args.save_media:
         print("No successful episodes were recorded for some formations, so no media will be generated for them.")
 

@@ -71,7 +71,7 @@ class TrainConfig:
     debug_critic: bool = False 
     debug_observation: bool = False
     resume_from_checkpoint: str = None
-    checkpoint_interval: int = 50
+    checkpoint_interval: int = 10
     seed: int = 42
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     run_name: str = f"hrg_maddpg_robust_{int(time.time())}"

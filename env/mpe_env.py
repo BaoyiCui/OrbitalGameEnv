@@ -43,10 +43,10 @@ class MPEEnvCfg(PEEnvCfg):
     # === [新] 课程学习最终版 ===
     start_ring_ratio: float = 1.0
     final_ring_ratio: float = 0.5
-    formation_curriculum_end_step: int = 1_400_000
+    formation_curriculum_end_step: int = 800_000
     
     # [新] 早停条件
-    early_stop_start_step: int = 1_400_000
+    early_stop_start_step: int = 800_000
     early_stop_success_rate: float = 0.85
 
 
