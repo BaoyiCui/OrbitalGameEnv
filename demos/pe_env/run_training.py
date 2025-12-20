@@ -31,6 +31,22 @@ NEW_REWARD_DEFAULTS = {
     "reward_fuelout_penalty": -11, # 加大燃料耗尽惩罚 
 }
 
+# ==================================================================
+# ==================== 在此处设置新的环境默认参数 ====================
+# ==================================================================
+NEW_ENV_DEFAULTS = {
+    # --- 环境与观测 ---
+    "obs_interval": 3, # 在POMDP中，每隔多少步进行一次真实观测
+}
+
+# ==================================================================
+# =================== 在此处设置新的课程学习默认参数 =================
+# ==================================================================
+NEW_CURRICULUM_DEFAULTS = {
+    # --- 课程学习 ---
+    "success_rate_threshold": 0.8, # 提升难度的成功率阈值
+}
+
 def main():
     """
     主函数，用于解析命令行参数并启动训练。
@@ -51,13 +67,15 @@ def main():
     env_parser.add_argument("--num_e", type=int, default=MPE_POMDP_EnvCfg.num_e, help="逃逸者(evader)的数量")
     env_parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="环境维度模式: 2=2D (默认), 3=3D")
     env_parser.add_argument("--use_partial_obs", type=lambda x: (str(x).lower() == 'true'), default=MPE_POMDP_EnvCfg.use_partial_obs, help="是否使用部分可观测环境")
-    env_parser.add_argument("--obs_interval", type=int, default=MPE_POMDP_EnvCfg.obs_interval, help="在POMDP中，每隔多少步进行一次真实观测")
+    env_parser.add_argument("--obs_interval", type=int, default=NEW_ENV_DEFAULTS.get('obs_interval', MPE_POMDP_EnvCfg.obs_interval), help="在POMDP中，每隔多少步进行一次真实观测")
     env_parser.add_argument("--evader_policy_level", type=int, default=MPEEnvCfg.evader_policy_level, choices=[0, 1, 2], 
                             help="逃逸者策略等级: 0=无机动, 1=随机, 2=势场法(APF)")
+    env_parser.add_argument("--p_dv_step", type=float, default=MPEEnvCfg.p_dv_step, help="追击方每次机动的最大速度增量 (m/s)")
     env_parser.add_argument("--e_dv_step", type=float, default=MPEEnvCfg.e_dv_step, help="逃逸方每次机动的最大速度增量 (m/s)")
 
     # --- 模型结构配置 ---
     model_parser.add_argument("--history_len", type=int, default=MPE_POMDP_EnvCfg.history_len, help="Transformer输入序列的历史长度")
+    model_parser.add_argument("--student_model_type", type=str, default='hafn', choices=['hafn', 'mlp', 'lstm'], help="选择Student Encoder的架构: hafn (默认), mlp, lstm")
 
     # --- 奖励权重配置 ---
     reward_parser.add_argument("--reward_phase_dist_weight", type=float, default=NEW_REWARD_DEFAULTS.get('reward_phase_dist_weight', MPEEnvCfg.reward_phase_dist_weight), help="[新] 相位/距离混合奖励的权重")
@@ -88,13 +106,13 @@ def main():
     # --- 训练过程超参数 ---
     train_parser.add_argument("--total_timesteps", type=int, default=TrainConfig.total_timesteps, help="总训练步数")
     train_parser.add_argument("--num_steps", type=int, default=TrainConfig.num_steps, help="每个更新周期采集的步数 (rollout buffer size)")
-    train_parser.add_argument("--num_envs", type=int, default=TrainConfig.num_envs, help="并行环境的数量 (当前代码固定为1)")
+    train_parser.add_argument("--num_envs", type=int, default=None, help="并行环境的数量。HAFN默认为4，其他为1。可手动覆盖。")
     train_parser.add_argument("--num_mini_batches", type=int, default=TrainConfig.num_mini_batches, help="每个epoch中mini-batch的数量")
     train_parser.add_argument("--update_epochs", type=int, default=TrainConfig.update_epochs, help="每个更新周期训练的epoch数")
 
     # --- 课程学习参数 ---
     curriculum_parser.add_argument("--initial_episode_length", type=int, default=TrainConfig.initial_episode_length, help="初始任务时长")
-    curriculum_parser.add_argument("--success_rate_threshold", type=float, default=TrainConfig.success_rate_threshold, help="提升难度的成功率阈值")
+    curriculum_parser.add_argument("--success_rate_threshold", type=float, default=NEW_CURRICULUM_DEFAULTS.get('success_rate_threshold', TrainConfig.success_rate_threshold), help="提升难度的成功率阈值")
     # 新的距离课程参数
     curriculum_parser.add_argument("--initial_m", type=float, default=TrainConfig.initial_m, help="课程学习：初始距离m (米)")
     curriculum_parser.add_argument("--target_m", type=float, default=TrainConfig.target_m, help="课程学习：目标距离m (米)")
@@ -131,6 +149,7 @@ def main():
     env_cfg.history_len = args.history_len # 使用新的参数
     env_cfg.use_fixed_seed_for_reset = args.use_fixed_seed_for_reset
     env_cfg.evader_policy_level = args.evader_policy_level
+    env_cfg.p_dv_step = args.p_dv_step
     env_cfg.e_dv_step = args.e_dv_step
     # Curriculum
     env_cfg.sma_perturb_start_update = args.sma_perturb_start_update
@@ -149,6 +168,17 @@ def main():
 
     # --- 2. 创建并填充训练配置 ---
     train_cfg = TrainConfig()
+    train_cfg.student_model_type = args.student_model_type
+    
+    # 根据模型类型设置并行环境数
+    if args.num_envs is not None:
+        train_cfg.num_envs = args.num_envs
+    else:
+        if args.student_model_type == 'hafn':
+            train_cfg.num_envs = 4
+        else:
+            train_cfg.num_envs = 1
+            
     train_cfg.gamma = args.gamma
     train_cfg.gae_lambda = args.gae_lambda
     train_cfg.clip_coef = args.clip_coef
@@ -163,9 +193,8 @@ def main():
     train_cfg.update_epochs = args.update_epochs
     train_cfg.total_timesteps = args.total_timesteps
     train_cfg.num_steps = args.num_steps
-    train_cfg.num_envs = args.num_envs
     train_cfg.initial_episode_length = args.initial_episode_length
-    train_cfg.curriculum_check_episodes = TrainConfig.curriculum_check_episodes # 保持不变
+    train_cfg.curriculum_check_episodes = TrainConfig.curriculum_check_episodes
     train_cfg.success_rate_threshold = args.success_rate_threshold
     # 填充新的课程学习参数
     train_cfg.initial_m = args.initial_m
@@ -199,6 +228,16 @@ def main():
         print(f"  reward_timeout_penalty: {env_cfg.reward_timeout_penalty}")
         print(f"  reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}")
         print("-" * 30)
+
+    print("--- 使用命令行配置启动训练 ---")
+    train(train_cfg, env_cfg, vars(args))
+    print("--- 训练结束 ---")
+
+
+if __name__ == "__main__":
+    main()
+    print(f"  reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}")
+    print("-" * 30)
 
     print("--- 使用命令行配置启动训练 ---")
     train(train_cfg, env_cfg, vars(args))

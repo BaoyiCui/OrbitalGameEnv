@@ -1,0 +1,1 @@
+Update(Upd),GlobalStep(GS),SuccessRate(SR),Distance_m(M),Fuel_dv(DV),RingRatio(RR),EventType(Event)

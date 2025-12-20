@@ -314,6 +314,11 @@ def run_eval(args):
     env_cfg.evader_policy_level = args.evader_policy_level
     env_cfg.dim_mode = args.dim_mode
 
+    if args.p_dv_step is not None:
+        env_cfg.p_dv_step = args.p_dv_step
+    if args.e_dv_step is not None:
+        env_cfg.e_dv_step = args.e_dv_step
+
     print(f"Evaluating with: Pursuers={env_cfg.num_p}, Evaders={env_cfg.num_e}, Evader Policy={env_cfg.evader_policy_level}, Dim Mode={env_cfg.dim_mode}")
 
     env = MPE_POMDP_Env(env_cfg)
@@ -433,6 +438,9 @@ if __name__ == "__main__":
     parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="Environment dimension mode: 2=2D (default), 3=3D")
     parser.add_argument("--evader_policy_level", type=int, default=0, choices=[0, 1, 2], help="Evader policy: 0=Drift, 1=Random, 2=APF")
     
+    parser.add_argument("--p_dv_step", type=float, default=None, help="Pursuer single step maneuver capability (m/s). Default: 1.5")
+    parser.add_argument("--e_dv_step", type=float, default=None, help="Evader single step maneuver capability (m/s). Default: 0.5")
+
     parser.add_argument("--test_episodes", type=int, default=40, help="Number of episodes to test for success rate")
     parser.add_argument("--save_media", action="store_true", help="Save GIF and static plot for the first successful run of each formation")
     
