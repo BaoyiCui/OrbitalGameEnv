@@ -1,0 +1,4 @@
+Update(Upd),GlobalStep(GS),SuccessRate(SR),Distance_m(M),Fuel_dv(DV),RingRatio(RR),EventType(Event)
+14,28672,0.820,4000.0,230.0,0.983,UPGRADE
+22,45056,0.840,6000.0,210.0,0.973,UPGRADE
+44,90112,0.840,8000.0,200.0,0.945,UPGRADE

@@ -307,6 +307,11 @@ def run_eval(args):
         for key, value in env_cfg_ckpt.items():
             if hasattr(env_cfg, key):
                 setattr(env_cfg, key, value)
+
+    # 从checkpoint中恢复模型类型，为旧版checkpoint提供默认值
+    train_cfg_ckpt = checkpoint.get('train_cfg', {})
+    student_model_type = train_cfg_ckpt.get('student_model_type', 'hafn')
+    print(f"Detected student model type: {student_model_type}")
     
     env_cfg.num_p = args.num_p if args.num_p is not None else env_cfg.num_p
     env_cfg.num_e = args.num_e
@@ -331,7 +336,7 @@ def run_eval(args):
     privileged_obs_dim = 6 + num_others * 9 
     act_dim = env.action_spaces[pursuer_ids[0]].shape[0]
 
-    model = HRG_ActorCritic(env_cfg, act_dim, privileged_obs_dim, student_obs_dim).to(device)
+    model = HRG_ActorCritic(env_cfg, act_dim, privileged_obs_dim, student_obs_dim, student_model_type=student_model_type).to(device)
     model.load_state_dict(checkpoint['agent_state_dict'])
     model.eval()
     print("Model loaded successfully.")
@@ -433,7 +438,6 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to the .pt checkpoint file")
     parser.add_argument("--num_p", type=int, default=None, help="Number of pursuers (loads from checkpoint if not set)")
     parser.add_argument("--num_e", type=int, default=1, help="Number of evaders")
-    parser.add_argument("--use_encoder", type=lambda x: (str(x).lower() == 'true'), default=None, help="Use Attention Encoder (loads from checkpoint if not set)")
     parser.add_argument("--history_len", type=int, default=20, help="History length for Transformer")
     parser.add_argument("--dim_mode", type=int, default=2, choices=[2, 3], help="Environment dimension mode: 2=2D (default), 3=3D")
     parser.add_argument("--evader_policy_level", type=int, default=0, choices=[0, 1, 2], help="Evader policy: 0=Drift, 1=Random, 2=APF")

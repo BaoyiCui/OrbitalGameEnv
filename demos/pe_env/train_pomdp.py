@@ -44,7 +44,7 @@ class TrainConfig:
     # 训练流程
     total_timesteps: int = 5_000_000
     num_steps: int = 2048
-    num_envs: int = 4
+    num_envs: int = 1
     num_mini_batches: int = 4
     update_epochs: int = 5
     
@@ -104,23 +104,43 @@ class HRG_ActorCritic(nn.Module):
 
         # --- Student Encoder 架构选择 ---
         if self.student_model_type == 'hafn':
-            # 1. 历史信息的处理 (作为 Key 和 Value)
+            # === Stage 1: 实体自注意力 (Entity Self-Attention) ===
+            # 1. 定义各实体输入的维度
+            self.self_obs_base_dim = 8 
+            self.target_obs_dim = 3 * self.env_cfg.num_e
+            self.orbital_feat_dim = 3
+            self.self_input_dim = self.self_obs_base_dim + self.target_obs_dim + self.orbital_feat_dim
+            
+            self.teammate_input_dim = 7
+            self.num_teammates = self.env_cfg.num_p - 1
+
+            # 2. 为不同实体创建投射层 (Projection Layers)
+            self.self_proj = nn.Sequential(
+                nn.LayerNorm(self.self_input_dim),
+                layer_init(nn.Linear(self.self_input_dim, d_model)), nn.ReLU()
+            )
+            if self.num_teammates > 0:
+                self.teammate_proj = nn.Sequential(
+                    nn.LayerNorm(self.teammate_input_dim),
+                    layer_init(nn.Linear(self.teammate_input_dim, d_model)), nn.ReLU()
+                )
+            
+            # 3. 实体融合的自注意力层
+            self.entity_self_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=4, batch_first=True)
+            self.norm_entity = nn.LayerNorm(d_model)
+
+            # === Stage 2: 历史跨注意力 (History Cross-Attention) ===
+            # 4. 历史信息的处理 (作为 Key 和 Value)
             self.history_norm = nn.LayerNorm(history_input_dim)
             self.history_embedding = layer_init(nn.Linear(history_input_dim, d_model))
             self.pos_embedding = nn.Parameter(torch.zeros(1, env_cfg.history_len, d_model))
 
-            # 2. 当前观测的处理 (作为 Query)
-            self.query_proj = nn.Sequential(
-                nn.LayerNorm(student_obs_dim),
-                layer_init(nn.Linear(student_obs_dim, d_model)),
-                nn.ReLU()
-            )
-
-            # 3. Cross-Attention 核心层
+            # 5. 跨注意力核心层
             self.cross_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=4, batch_first=True)
             self.norm_attn = nn.LayerNorm(d_model)
 
-            # 4. 下游的 Student Encoder
+            # === 下游模块 ===
+            # 6. 下游的 Student Encoder
             self.student_enc_hafn = HRG_Student_Encoder(
                 env_cfg, student_obs_dim=student_obs_dim, self_input_dim=8, 
                 target_input_dim=3, teammate_input_dim=7, hidden_dim=d_model
@@ -158,43 +178,60 @@ class HRG_ActorCritic(nn.Module):
             layer_init(nn.Linear(256, act_dim), std=0.01)
         )
 
-    def get_history_feats(self, obs, history, history_mask=None):
-        """
-        利用 Cross-Attention，用当前观测 (Query) 去查询历史轨迹 (Key/Value)
-        返回: 基于当前状态加权的历史特征向量 [Batch, d_model]
-        """
-        # === Step 1: 准备 Key/Value (历史记忆) ===
-        normed_history = self.history_norm(history)
-        h_embed = self.history_embedding(normed_history)
-        
-        h_embed = h_embed + self.pos_embedding[:, :h_embed.shape[1], :]
-
-        # === Step 2: 准备 Query (当前状态) ===
-        current_query = self.query_proj(obs).unsqueeze(1)
-
-        # === Step 3: 准备 Mask ===
-        if history_mask is not None:
-            key_padding_mask = (history_mask == 0)
-        else:
-            key_padding_mask = None
-
-        # === Step 4: Cross-Attention 计算 ===
-        attn_output, attn_weights = self.cross_attn(
-            query=current_query, 
-            key=h_embed, 
-            value=h_embed, 
-            key_padding_mask=key_padding_mask
-        )
-
-        # === Step 5: 残差连接与输出 ===
-        fused_feature = self.norm_attn(current_query + attn_output)
-        
-        return fused_feature.squeeze(1)
-
     def get_student_features(self, obs, history, history_mask):
         attn_weights = None 
         if self.student_model_type == 'hafn':
-            hist_feats = self.get_history_feats(obs, history, history_mask)
+            # === Stage 1: 实体自注意力 (融合当前实体信息) ===
+            # 1. 拆分观测向量为不同的实体 (根据 env 中定义的顺序)
+            # Obs order: [self_base, targets, teammates, orbital]
+            teammate_total_dim = self.teammate_input_dim * self.num_teammates
+            
+            self_and_target_part = obs[:, :(self.self_obs_base_dim + self.target_obs_dim)]
+            teammates_part = obs[:, (self.self_obs_base_dim + self.target_obs_dim):(self.self_obs_base_dim + self.target_obs_dim + teammate_total_dim)]
+            orbital_part = obs[:, (self.self_obs_base_dim + self.target_obs_dim + teammate_total_dim):]
+            
+            # 2. 组合 "Self" Token 的输入: [self_base, targets, orbital]
+            self_input = torch.cat([self_and_target_part, orbital_part], dim=1)
+
+            # 3. 将每个实体投射为 Token
+            self_token = self.self_proj(self_input).unsqueeze(1) # [B, 1, D]
+            
+            entity_tokens = [self_token]
+            if self.num_teammates > 0:
+                teammates_reshaped = teammates_part.view(-1, self.num_teammates, self.teammate_input_dim)
+                teammate_tokens = self.teammate_proj(teammates_reshaped) # [B, N_teammates, D]
+                entity_tokens.append(teammate_tokens)
+
+            entity_tokens_cat = torch.cat(entity_tokens, dim=1) # [B, N_agents, D]
+
+            # 4. 执行实体间的自注意力
+            entity_attn_out, _ = self.entity_self_attn(entity_tokens_cat, entity_tokens_cat, entity_tokens_cat)
+            fused_entities = self.norm_entity(entity_tokens_cat + entity_attn_out)
+
+            # 5. 提取代表自身的、已融合信息的 Token 作为下一阶段的 Query
+            fused_query = fused_entities[:, 0, :].unsqueeze(1) # [B, 1, D]
+
+            # === Stage 2: 历史跨注意力 (用融合后的查询去检索历史) ===
+            # 6. 准备历史信息的 Key 和 Value
+            normed_history = self.history_norm(history)
+            h_embed = self.history_embedding(normed_history)
+            h_embed = h_embed + self.pos_embedding[:, :h_embed.shape[1], :]
+
+            # 7. 准备 Mask
+            key_padding_mask = (history_mask == 0) if history_mask is not None else None
+
+            # 8. 执行跨注意力
+            hist_attn_out, _ = self.cross_attn(
+                query=fused_query, 
+                key=h_embed, 
+                value=h_embed, 
+                key_padding_mask=key_padding_mask
+            )
+            
+            # 9. 残差连接与输出，得到融合了历史信息的特征
+            hist_feats = self.norm_attn(fused_query + hist_attn_out).squeeze(1) # [B, D]
+
+            # === Final Encoding ===
             student_features, attn_weights = self.student_enc_hafn(obs, hist_feats)
         
         elif self.student_model_type == 'lstm':

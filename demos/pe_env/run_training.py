@@ -106,7 +106,7 @@ def main():
     # --- 训练过程超参数 ---
     train_parser.add_argument("--total_timesteps", type=int, default=TrainConfig.total_timesteps, help="总训练步数")
     train_parser.add_argument("--num_steps", type=int, default=TrainConfig.num_steps, help="每个更新周期采集的步数 (rollout buffer size)")
-    train_parser.add_argument("--num_envs", type=int, default=None, help="并行环境的数量。HAFN默认为4，其他为1。可手动覆盖。")
+    train_parser.add_argument("--num_envs", type=int, default=TrainConfig.num_envs, help="并行环境的数量 (默认为 1)")
     train_parser.add_argument("--num_mini_batches", type=int, default=TrainConfig.num_mini_batches, help="每个epoch中mini-batch的数量")
     train_parser.add_argument("--update_epochs", type=int, default=TrainConfig.update_epochs, help="每个更新周期训练的epoch数")
 
@@ -170,14 +170,7 @@ def main():
     train_cfg = TrainConfig()
     train_cfg.student_model_type = args.student_model_type
     
-    # 根据模型类型设置并行环境数
-    if args.num_envs is not None:
-        train_cfg.num_envs = args.num_envs
-    else:
-        if args.student_model_type == 'hafn':
-            train_cfg.num_envs = 4
-        else:
-            train_cfg.num_envs = 1
+    train_cfg.num_envs = args.num_envs
             
     train_cfg.gamma = args.gamma
     train_cfg.gae_lambda = args.gae_lambda
