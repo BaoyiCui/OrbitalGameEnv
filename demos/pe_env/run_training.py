@@ -98,6 +98,7 @@ def main():
     algo_parser.add_argument("--clip_coef", type=float, default=TrainConfig.clip_coef, help="PPO的裁剪系数")
     algo_parser.add_argument("--ent_coef", type=float, default=TrainConfig.ent_coef, help="熵损失的系数")
     algo_parser.add_argument("--vf_coef", type=float, default=TrainConfig.vf_coef, help="值函数损失的系数")
+    algo_parser.add_argument("--use_distillation", type=lambda x: (str(x).lower() == 'true'), default=TrainConfig.use_distillation, help="是否对所有模型使用教师蒸馏 (默认: True)")
     algo_parser.add_argument("--distil_coef", type=float, default=TrainConfig.distil_coef, help="蒸馏损失的权重")
     algo_parser.add_argument("--anneal_ent", type=lambda x: (str(x).lower() == 'true'), default=TrainConfig.anneal_ent, help="是否对熵系数进行退火")
     algo_parser.add_argument("--ent_anneal_start_frac", type=float, default=TrainConfig.ent_anneal_start_frac, help="熵系数退火起始点 (占总训练步数的百分比)")
@@ -177,6 +178,7 @@ def main():
     train_cfg.clip_coef = args.clip_coef
     train_cfg.ent_coef = args.ent_coef
     train_cfg.vf_coef = args.vf_coef
+    train_cfg.use_distillation = args.use_distillation
     train_cfg.distil_coef = args.distil_coef
     train_cfg.anneal_ent = args.anneal_ent
     train_cfg.ent_anneal_start_frac = args.ent_anneal_start_frac
@@ -226,15 +228,6 @@ def main():
     train(train_cfg, env_cfg, vars(args))
     print("--- 训练结束 ---")
 
-
-if __name__ == "__main__":
-    main()
-    print(f"  reward_fuelout_penalty: {env_cfg.reward_fuelout_penalty}")
-    print("-" * 30)
-
-    print("--- 使用命令行配置启动训练 ---")
-    train(train_cfg, env_cfg, vars(args))
-    print("--- 训练结束 ---")
 
 if __name__ == "__main__":
     main()

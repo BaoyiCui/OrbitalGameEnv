@@ -310,8 +310,16 @@ def run_eval(args):
 
     # 从checkpoint中恢复模型类型，为旧版checkpoint提供默认值
     train_cfg_ckpt = checkpoint.get('train_cfg', {})
-    student_model_type = train_cfg_ckpt.get('student_model_type', 'hafn')
-    print(f"Detected student model type: {student_model_type}")
+    student_model_type_from_ckpt = train_cfg_ckpt.get('student_model_type', 'hafn')
+    
+    # 如果用户通过命令行指定了模型类型，则覆盖
+    if args.student_model_type:
+        student_model_type = args.student_model_type
+        print(f"Manually overriding student model type to: {student_model_type}")
+    else:
+        student_model_type = student_model_type_from_ckpt
+    
+    print(f"Using student model type: {student_model_type}")
     
     env_cfg.num_p = args.num_p if args.num_p is not None else env_cfg.num_p
     env_cfg.num_e = args.num_e
@@ -436,6 +444,9 @@ def run_eval(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate MPE POMDP Agent")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to the .pt checkpoint file")
+    
+    # Model and Env overrides
+    parser.add_argument("--student_model_type", type=str, default=None, choices=['hafn', 'mlp', 'lstm'], help="Manually override the student model type (for old checkpoints)")
     parser.add_argument("--num_p", type=int, default=None, help="Number of pursuers (loads from checkpoint if not set)")
     parser.add_argument("--num_e", type=int, default=1, help="Number of evaders")
     parser.add_argument("--history_len", type=int, default=20, help="History length for Transformer")
@@ -445,6 +456,7 @@ if __name__ == "__main__":
     parser.add_argument("--p_dv_step", type=float, default=None, help="Pursuer single step maneuver capability (m/s). Default: 1.5")
     parser.add_argument("--e_dv_step", type=float, default=None, help="Evader single step maneuver capability (m/s). Default: 0.5")
 
+    # Evaluation settings
     parser.add_argument("--test_episodes", type=int, default=40, help="Number of episodes to test for success rate")
     parser.add_argument("--save_media", action="store_true", help="Save GIF and static plot for the first successful run of each formation")
     
