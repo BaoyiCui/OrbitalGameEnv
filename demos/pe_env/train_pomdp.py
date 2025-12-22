@@ -18,12 +18,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
 from env.mpe_env import GlobalTrainManager
-from env.hrg_models import HRG_Student_Encoder, Aligned_Teacher
+from env.hrg_models import HAFN_Encoder, LSTM_Encoder, MLP_Encoder, Aligned_Teacher
 
 class TrainConfig:
     """训练超参数配置"""
     # 模型与架构
     student_model_type: str = 'hafn'
+    use_distillation: bool = True
     distil_coef: float = 1.0
     hls_weight_decay: float = 1e-4
 
@@ -87,180 +88,71 @@ class HRG_ActorCritic(nn.Module):
         self.student_model_type = student_model_type
         self.env_cfg = env_cfg
         
-        d_model = 128
+        hidden_dim = 128
         history_input_dim = 6
         
-        # --- 公共模块 ---
+        # === 1. 初始化 Student Encoder (根据类型选择) ===
+        if student_model_type == 'hafn':
+            self.student_encoder = HAFN_Encoder(
+                env_cfg, student_obs_dim, history_input_dim, hidden_dim
+            )
+        elif student_model_type == 'lstm':
+            self.student_encoder = LSTM_Encoder(
+                env_cfg, student_obs_dim, history_input_dim, hidden_dim
+            )
+        elif student_model_type == 'mlp':
+            self.student_encoder = MLP_Encoder(
+                env_cfg, student_obs_dim, history_input_dim, hidden_dim
+            )
+        else:
+            raise ValueError(f"Unknown student_model_type: {student_model_type}")
+            
+        student_output_dim = self.student_encoder.output_dim
+
+        # === 2. Actor Head ===
+        self.actor_head = nn.Sequential(
+            layer_init(nn.Linear(student_output_dim, 256)), nn.Tanh(),
+            layer_init(nn.Linear(256, act_dim), std=0.01)
+        )
+        
+        # Actor 噪声参数
+        self.actor_logstd = nn.Parameter(torch.ones(1, act_dim) * -0.5)
+        
+        # === 3. Critic (Value Function) ===
+        # Critic 输入的是特权信息 (Privileged Obs)
         self.critic = nn.Sequential(
             nn.LayerNorm(priv_obs_dim),
             layer_init(nn.Linear(priv_obs_dim, 512)), nn.LayerNorm(512), nn.ReLU(),
             layer_init(nn.Linear(512, 256)), nn.LayerNorm(256), nn.ReLU(),
             layer_init(nn.Linear(256, 1), std=1.0)
         )
-        self.actor_logstd = nn.Parameter(torch.ones(1, act_dim) * -0.5)
+
+        # === 4. Distillation Teacher (用于辅助学生学习) ===
+        self.teacher_enc = Aligned_Teacher(priv_obs_dim, student_out_dim=student_output_dim)
+        
+        # 动作缩放 (Action Scaling)
         action_space = spaces.Box(-env_cfg.p_dv_step, env_cfg.p_dv_step, shape=(3,))
         self.register_buffer("action_scale", torch.tensor((action_space.high - action_space.low) / 2.0, dtype=torch.float32))
         self.register_buffer("action_bias", torch.tensor((action_space.high + action_space.low) / 2.0, dtype=torch.float32))
 
-        # --- Student Encoder 架构选择 ---
-        if self.student_model_type == 'hafn':
-            # === Stage 1: 实体自注意力 (Entity Self-Attention) ===
-            # 1. 定义各实体输入的维度
-            self.self_obs_base_dim = 8 
-            self.target_obs_dim = 3 * self.env_cfg.num_e
-            self.orbital_feat_dim = 3
-            self.self_input_dim = self.self_obs_base_dim + self.target_obs_dim + self.orbital_feat_dim
-            
-            self.teammate_input_dim = 7
-            self.num_teammates = self.env_cfg.num_p - 1
-
-            # 2. 为不同实体创建投射层 (Projection Layers)
-            self.self_proj = nn.Sequential(
-                nn.LayerNorm(self.self_input_dim),
-                layer_init(nn.Linear(self.self_input_dim, d_model)), nn.ReLU()
-            )
-            if self.num_teammates > 0:
-                self.teammate_proj = nn.Sequential(
-                    nn.LayerNorm(self.teammate_input_dim),
-                    layer_init(nn.Linear(self.teammate_input_dim, d_model)), nn.ReLU()
-                )
-            
-            # 3. 实体融合的自注意力层
-            self.entity_self_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=4, batch_first=True)
-            self.norm_entity = nn.LayerNorm(d_model)
-
-            # === Stage 2: 历史跨注意力 (History Cross-Attention) ===
-            # 4. 历史信息的处理 (作为 Key 和 Value)
-            self.history_norm = nn.LayerNorm(history_input_dim)
-            self.history_embedding = layer_init(nn.Linear(history_input_dim, d_model))
-            self.pos_embedding = nn.Parameter(torch.zeros(1, env_cfg.history_len, d_model))
-
-            # 5. 跨注意力核心层
-            self.cross_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=4, batch_first=True)
-            self.norm_attn = nn.LayerNorm(d_model)
-
-            # === 下游模块 ===
-            # 6. 下游的 Student Encoder
-            self.student_enc_hafn = HRG_Student_Encoder(
-                env_cfg, student_obs_dim=student_obs_dim, self_input_dim=8, 
-                target_input_dim=3, teammate_input_dim=7, hidden_dim=d_model
-            )
-            student_output_dim = self.student_enc_hafn.output_dim
-
-        elif self.student_model_type == 'lstm':
-            self.history_norm = nn.LayerNorm(history_input_dim)
-            self.history_embedding = layer_init(nn.Linear(history_input_dim, d_model))
-            self.history_encoder = nn.LSTM(input_size=d_model, hidden_size=d_model, num_layers=2, batch_first=True)
-            self.fusion_encoder = HRG_Student_Encoder(
-                env_cfg, student_obs_dim=student_obs_dim, self_input_dim=8, 
-                target_input_dim=3, teammate_input_dim=7, hidden_dim=d_model
-            )
-            student_output_dim = self.fusion_encoder.output_dim
-
-        elif self.student_model_type == 'mlp':
-            self_dim = 8
-            target_dim = 3 * self.env_cfg.num_e
-            mlp_input_dim = self_dim + target_dim
-            self.mlp_encoder = nn.Sequential(
-                nn.LayerNorm(mlp_input_dim),
-                layer_init(nn.Linear(mlp_input_dim, d_model)), nn.Tanh(),
-                layer_init(nn.Linear(d_model, d_model)), nn.Tanh()
-            )
-            student_output_dim = d_model
-        
-        else:
-            raise ValueError(f"未知的 student_model_type: {self.student_model_type}")
-
-        # --- Teacher and Actor Head ---
-        self.teacher_enc = Aligned_Teacher(priv_obs_dim, student_out_dim=student_output_dim)
-        self.actor_head = nn.Sequential(
-            layer_init(nn.Linear(student_output_dim, 256)), nn.Tanh(),
-            layer_init(nn.Linear(256, act_dim), std=0.01)
-        )
-
     def get_student_features(self, obs, history, history_mask):
-        attn_weights = None 
-        if self.student_model_type == 'hafn':
-            # === Stage 1: 实体自注意力 (融合当前实体信息) ===
-            # 1. 拆分观测向量为不同的实体 (根据 env 中定义的顺序)
-            # Obs order: [self_base, targets, teammates, orbital]
-            teammate_total_dim = self.teammate_input_dim * self.num_teammates
-            
-            self_and_target_part = obs[:, :(self.self_obs_base_dim + self.target_obs_dim)]
-            teammates_part = obs[:, (self.self_obs_base_dim + self.target_obs_dim):(self.self_obs_base_dim + self.target_obs_dim + teammate_total_dim)]
-            orbital_part = obs[:, (self.self_obs_base_dim + self.target_obs_dim + teammate_total_dim):]
-            
-            # 2. 组合 "Self" Token 的输入: [self_base, targets, orbital]
-            self_input = torch.cat([self_and_target_part, orbital_part], dim=1)
-
-            # 3. 将每个实体投射为 Token
-            self_token = self.self_proj(self_input).unsqueeze(1) # [B, 1, D]
-            
-            entity_tokens = [self_token]
-            if self.num_teammates > 0:
-                teammates_reshaped = teammates_part.view(-1, self.num_teammates, self.teammate_input_dim)
-                teammate_tokens = self.teammate_proj(teammates_reshaped) # [B, N_teammates, D]
-                entity_tokens.append(teammate_tokens)
-
-            entity_tokens_cat = torch.cat(entity_tokens, dim=1) # [B, N_agents, D]
-
-            # 4. 执行实体间的自注意力
-            entity_attn_out, _ = self.entity_self_attn(entity_tokens_cat, entity_tokens_cat, entity_tokens_cat)
-            fused_entities = self.norm_entity(entity_tokens_cat + entity_attn_out)
-
-            # 5. 提取代表自身的、已融合信息的 Token 作为下一阶段的 Query
-            fused_query = fused_entities[:, 0, :].unsqueeze(1) # [B, 1, D]
-
-            # === Stage 2: 历史跨注意力 (用融合后的查询去检索历史) ===
-            # 6. 准备历史信息的 Key 和 Value
-            normed_history = self.history_norm(history)
-            h_embed = self.history_embedding(normed_history)
-            h_embed = h_embed + self.pos_embedding[:, :h_embed.shape[1], :]
-
-            # 7. 准备 Mask
-            key_padding_mask = (history_mask == 0) if history_mask is not None else None
-
-            # 8. 执行跨注意力
-            hist_attn_out, _ = self.cross_attn(
-                query=fused_query, 
-                key=h_embed, 
-                value=h_embed, 
-                key_padding_mask=key_padding_mask
-            )
-            
-            # 9. 残差连接与输出，得到融合了历史信息的特征
-            hist_feats = self.norm_attn(fused_query + hist_attn_out).squeeze(1) # [B, D]
-
-            # === Final Encoding ===
-            student_features, attn_weights = self.student_enc_hafn(obs, hist_feats)
-        
-        elif self.student_model_type == 'lstm':
-            normed_history = self.history_norm(history)
-            embedded_history = self.history_embedding(normed_history)
-            _, (h_n, _) = self.history_encoder(embedded_history)
-            history_feats = h_n[-1]
-            student_features, attn_weights = self.fusion_encoder(obs, history_feats)
-
-        elif self.student_model_type == 'mlp':
-            self_dim = 8
-            target_dim = 3 * self.env_cfg.num_e
-            mlp_input_dim = self_dim + target_dim
-            mlp_input = torch.cat([obs[:, :self_dim], obs[:, self_dim:mlp_input_dim]], dim=1)
-            student_features = self.mlp_encoder(mlp_input)
-        
-        return student_features, attn_weights
+        # 所有的逻辑都委托给具体的 encoder
+        return self.student_encoder(obs, history, history_mask)
 
     def get_value(self, privileged_obs):
         return self.critic(privileged_obs)
 
     def get_action_and_value(self, obs, privileged_obs, history, history_mask=None, action=None, deterministic=False):
+        # 1. 获取特征
         student_features, attn_weights = self.get_student_features(obs, history, history_mask)
-        action_mean = self.actor_head(student_features)
         
+        # 2. 计算动作分布
+        action_mean = self.actor_head(student_features)
         clipped_logstd = torch.clamp(self.actor_logstd, -2, 1)
         action_std = torch.exp(clipped_logstd).expand_as(action_mean)
         probs = torch.distributions.Normal(action_mean, action_std)
         
+        # 3. 采样动作
         if action is None:
             pre_tanh_action = probs.rsample() if not deterministic else action_mean
             tanh_action = torch.tanh(pre_tanh_action)
@@ -271,12 +163,13 @@ class HRG_ActorCritic(nn.Module):
             final_action = action
             tanh_action = torch.tanh(pre_tanh_action)
 
-        log_prob_pre_tanh = probs.log_prob(pre_tanh_action).sum(1)
-        log_prob_correction = torch.log(self.action_scale * (1.0 - tanh_action.pow(2)) + 1e-6).sum(1)
-        log_prob = log_prob_pre_tanh - log_prob_correction
+        log_prob = probs.log_prob(pre_tanh_action).sum(1) - torch.log(self.action_scale * (1.0 - tanh_action.pow(2)) + 1e-6).sum(1)
         entropy = probs.entropy().sum(1)
+        
+        # 4. 计算价值
         value = self.get_value(privileged_obs)
         
+        # 5. 教师蒸馏目标
         with torch.no_grad():
             distil_target = self.teacher_enc(privileged_obs)
 
@@ -410,8 +303,12 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     hls_params, other_params = [], []
     for name, param in agent.named_parameters():
         if not param.requires_grad: continue
-        if "hls_" in name: hls_params.append(param)
-        else: other_params.append(param)
+        
+        # [FIXED]: Recognize both "hls_" and the new "fusion_gate"
+        if "hls_" in name or "fusion_gate" in name: 
+            hls_params.append(param)
+        else: 
+            other_params.append(param)
 
     optimizer = torch.optim.Adam([
         {'params': hls_params, 'weight_decay': cfg.hls_weight_decay},
@@ -615,7 +512,7 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
                 v_loss = 0.5 * ((new_value - b_ret) ** 2).mean()
                 entropy_loss = entropy.mean()
                 
-                if cfg.student_model_type == 'hafn':
+                if cfg.use_distillation:
                     distil_loss = F.mse_loss(s_feat, distil_target)
                 else:
                     distil_loss = torch.tensor(0.0).to(cfg.device)
@@ -739,4 +636,4 @@ def train(cfg: TrainConfig, env_cfg: MPE_POMDP_EnvCfg, all_params: dict):
     writer.close()
 
 if __name__ == "__main__":
-    train(TrainConfig(), MPE_POMDP_EnvCfg(), {{}})
+    train(TrainConfig(), MPE_POMDP_EnvCfg(), {})

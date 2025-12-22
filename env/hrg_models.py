@@ -75,90 +75,62 @@ class HAFN_Encoder(Base_Student_Encoder):
     def __init__(self, env_cfg, student_obs_dim, history_input_dim=6, hidden_dim=128):
         super().__init__(env_cfg, student_obs_dim, hidden_dim)
         
-        # 1. 实体注意力 (处理当前观测)
+        # --- Stage 1: Entity Attention (处理空间/编队关系) ---
         self.entity_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
         self.norm_entity = nn.LayerNorm(hidden_dim)
         
-        # 2. 历史注意力 (处理时序)
+        # --- Stage 2: History Cross Attention (处理时序/不完美观测) ---
         self.history_embed = nn.Sequential(
             nn.Linear(history_input_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU()
         )
-        # [核心改进 1]: 注册固定的正弦位置编码
-        self.register_buffer('pos_embed', self._get_sinusoidal_encoding(env_cfg.history_len, hidden_dim))
+
+        # [Reverted]: Using a learnable, zero-initialized positional encoding
+        self.pos_embed = nn.Parameter(torch.zeros(1, env_cfg.history_len, hidden_dim))
         
-        # Cross Attention Block (Pre-LN)
-        self.norm_cross = nn.LayerNorm(hidden_dim)
+        # Cross Attention: Query来自当前状态, Key/Value来自历史
         self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
+        self.norm_cross = nn.LayerNorm(hidden_dim)
         
-        # [核心改进 2]: FFN Block (Pre-LN)
-        self.norm_ffn = nn.LayerNorm(hidden_dim)
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim * 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim * 2, hidden_dim)
-        )
-
-        # [新增] 3. 门控残差融合层 (Gated Residual Fusion)
-        self.fusion_gate = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.Sigmoid() 
-        )
+        # [Reverted]: No FFN layer
         
-        # 输出层
-        self.output_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
-        )
-        
-        self.output_dim = hidden_dim
-
-    def _get_sinusoidal_encoding(self, length, dim):
-        pe = torch.zeros(length, dim)
-        position = torch.arange(0, length, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2).float() * (-np.log(10000.0) / dim))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        return pe.unsqueeze(0)
+        # The output is a simple concatenation of the two contexts
+        self.output_dim = hidden_dim * 2 
 
     def forward(self, obs, history, history_mask):
-        # A. 当前观测通路 (The "Identity" Path)
+        # === 1. Entity Self-Attention (Pre-LN) ===
         self_emb, team_embs = self.split_and_embed_obs(obs)
+        
         if team_embs is not None:
             tokens = torch.cat([self_emb, team_embs], dim=1)
-            # Pre-LN for entity attention
             normed_tokens = self.norm_entity(tokens)
             attn_out, _ = self.entity_attn(normed_tokens, normed_tokens, normed_tokens)
-            # Residual connection and select self token
-            current_feat = (tokens + attn_out)[:, 0, :]
+            entity_ctx = (tokens + attn_out)[:, 0:1, :]
         else:
-            current_feat = self_emb.squeeze(1)
-
-        # B. 历史修正通路 (The "Residual" Path)
+            entity_ctx = self_emb
+            
+        # === 2. History Processing (Attention only) ===
         B, T, _ = history.shape
-        hist_emb = self.history_embed(history) + self.pos_embed[:, :T, :]
+        hist_emb = self.history_embed(history)
+        # [Reverted]: Add the learnable position embedding
+        hist_emb = hist_emb + self.pos_embed[:, :T, :]
+        
         key_padding_mask = (history_mask == 0)
         
-        query = current_feat.unsqueeze(1)
-
-        # Pre-LN Cross-Attention Block
-        normed_query = self.norm_cross(query)
-        attn_out, attn_weights = self.cross_attn(normed_query, hist_emb, hist_emb, key_padding_mask=key_padding_mask)
-        hist_feat = query + attn_out # Residual 1
-
-        # Pre-LN FFN Block
-        normed_hist_feat = self.norm_ffn(hist_feat)
-        ffn_out = self.ffn(normed_hist_feat)
-        hist_feat_processed = (hist_feat + ffn_out).squeeze(1) # Residual 2
-
-        # C. 门控残差融合 (Gated Residual Connection)
-        combined_input = torch.cat([current_feat, hist_feat_processed], dim=-1)
-        gate = self.fusion_gate(combined_input)
+        # Cross-Attention (Post-LN style, as it was in that version)
+        attn_out, attn_weights = self.cross_attn(
+            query=entity_ctx,
+            key=hist_emb,
+            value=hist_emb,
+            key_padding_mask=key_padding_mask
+        )
+        # [Reverted]: Simple Add & Norm, no FFN
+        history_ctx = self.norm_cross(entity_ctx + attn_out)
         
-        final_feat = current_feat + gate * hist_feat_processed
-        
-        return self.output_head(final_feat), attn_weights
+        # === 3. Final Output ===
+        output = torch.cat([entity_ctx.squeeze(1), history_ctx.squeeze(1)], dim=-1)
+        return output, attn_weights
 
 # ==========================================
 # 2. LSTM Encoder (Strong Baseline)
