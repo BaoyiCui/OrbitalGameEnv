@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 from env.mpe_pomdp_env import MPE_POMDP_Env, MPE_POMDP_EnvCfg
 from env.mpe_env import GlobalTrainManager
-from env.hrg_models import HAFN_Encoder, LSTM_Encoder, MLP_Encoder, Aligned_Teacher
+from env.new_models import HAFN_Encoder, LSTM_Encoder, MLP_Encoder, Aligned_Teacher
 
 class TrainConfig:
     """训练超参数配置"""

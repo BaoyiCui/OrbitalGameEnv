@@ -74,7 +74,8 @@ def save_static_plot(traj_data, pursuer_ids, evader_id, filename, formation_name
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
     ax.set_zlabel('Z (km)')
-    ax.set_title(f'Absolute Trajectory - {formation_name.capitalize()}')
+    display_name = "Square" if formation_name == "ring" else formation_name.capitalize()
+    ax.set_title(f'Absolute Trajectory - {display_name}')
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=5)
     set_axes_equal(ax)
 
@@ -138,7 +139,8 @@ def save_top_down_plot(traj_data, pursuer_ids, evader_id, filename, formation_na
 
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
-    ax.set_title(f'Top-Down Trajectory - {formation_name.capitalize()} (Z-axis view)')
+    display_name = "Square" if formation_name == "ring" else formation_name.capitalize()
+    ax.set_title(f'Top-Down Trajectory - {display_name} (Z-axis view)')
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=6)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True)
@@ -180,11 +182,26 @@ def save_relative_plot(traj_data, pursuer_ids, evader_id, filename, formation_na
             min_len = min(len(evader_traj), len(pursuer_traj))
             relative_traj = (pursuer_traj[:min_len] - evader_traj[:min_len]) / scale
             
-            ax.plot(relative_traj[:,0], relative_traj[:,1], label=f'Pursuer {i}', color=colors[i], linewidth=1.5, alpha=0.8)
-            ax.scatter(relative_traj[0,0], relative_traj[0,1], marker='o', color=colors[i], s=40, label=f'P{i} Start')
-            ax.scatter(relative_traj[-1,0], relative_traj[-1,1], marker='x', color=colors[i], s=80, linewidth=2, label=f'P{i} End')
-            all_rel_x.extend(relative_traj[:,0])
-            all_rel_y.extend(relative_traj[:,1])
+            # [修改] 使用渐变色绘制轨迹
+            base_color = colors[i]
+            num_segments = len(relative_traj) - 1
+            if num_segments > 0:
+                for j in range(num_segments):
+                    # 线性增加 alpha 值 (从 0.1 到 0.9)
+                    current_alpha = 0.1 + (j / num_segments) * 0.8
+                    p1 = relative_traj[j]
+                    p2 = relative_traj[j+1]
+                    ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color=base_color, linewidth=1.5, alpha=current_alpha)
+
+            # 添加一个不可见的线用于生成图例
+            ax.plot([], [], label=f'Pursuer {i}', color=base_color, linewidth=1.5)
+            
+            # 绘制起点和终点
+            if relative_traj.size > 0:
+                ax.scatter(relative_traj[0,0], relative_traj[0,1], marker='o', color=colors[i], s=40, label=f'P{i} Start')
+                ax.scatter(relative_traj[-1,0], relative_traj[-1,1], marker='x', color=colors[i], s=80, linewidth=2, label=f'P{i} End')
+                all_rel_x.extend(relative_traj[:,0])
+                all_rel_y.extend(relative_traj[:,1])
 
     if all_rel_x and all_rel_y:
         x_min, x_max = min(all_rel_x), max(all_rel_x)
@@ -201,7 +218,8 @@ def save_relative_plot(traj_data, pursuer_ids, evader_id, filename, formation_na
 
     ax.set_xlabel('Relative X (km)')
     ax.set_ylabel('Relative Y (km)')
-    ax.set_title(f'Relative Trajectory to Evader - {formation_name.capitalize()}')
+    display_name = "Square" if formation_name == "ring" else formation_name.capitalize()
+    ax.set_title(f'Relative Trajectory to Evader - {display_name}')
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=False, ncol=6)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True)
@@ -269,7 +287,8 @@ def create_gif(traj_data, pursuer_ids, evader_id, filename, formation_name, capt
         
         ax.set_xlabel('Relative X (km)')
         ax.set_ylabel('Relative Y (km)')
-        ax.set_title(f'Relative Positions - {formation_name.capitalize()} (Step {t})')
+        display_name = "Square" if formation_name == "ring" else formation_name.capitalize()
+        ax.set_title(f'Relative Positions - {display_name} (Step {t})')
         ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), fancybox=True, shadow=False, ncol=6)
         ax.grid(True)
         ax.set_aspect('equal', adjustable='box')

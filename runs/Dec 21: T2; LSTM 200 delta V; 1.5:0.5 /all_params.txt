@@ -1,5 +1,5 @@
 --- TrainConfig ---
-student_model_type: mlp
+student_model_type: lstm
 num_envs: 1
 gamma: 0.99
 gae_lambda: 0.95
@@ -30,7 +30,7 @@ device: cuda
 debug_critic: False
 debug_observation: False
 resume_from_checkpoint: None
-run_name: Dec 21: T4; MLP; 200 delta V; 1.5:0.5 
+run_name: Dec 21: T2; LSTM 200 delta V; 1.5:0.5 
 
 --- MPE_POMDP_EnvCfg ---
 evader_policy_type: Scripted
@@ -131,12 +131,12 @@ reward_phase_dist_weight: 1.0
 reward_time_weight: 0.02
 reward_timeout_penalty: -9
 ring_width_delta: 20000.0
-run_name: Dec 21: T4; MLP; 200 delta V; 1.5:0.5 
+run_name: Dec 21: T2; LSTM 200 delta V; 1.5:0.5 
 seed: 42
 sma_perturb_end_update: 1500
 sma_perturb_km_max: 10.0
 sma_perturb_start_update: 500
-student_model_type: mlp
+student_model_type: lstm
 success_rate_threshold: 0.7
 target_m: 40000.0
 total_timesteps: 5000000

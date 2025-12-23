@@ -1,11 +1,12 @@
 --- TrainConfig ---
-student_model_type: mlp
+student_model_type: hafn
 num_envs: 1
 gamma: 0.99
 gae_lambda: 0.95
 clip_coef: 0.2
 ent_coef: 0.011
 vf_coef: 0.5
+use_distillation: True
 distil_coef: 1.0
 anneal_ent: True
 ent_anneal_start_frac: 0.3
@@ -17,7 +18,7 @@ total_timesteps: 5000000
 num_steps: 2048
 initial_episode_length: 36000
 curriculum_check_episodes: 50
-success_rate_threshold: 0.7
+success_rate_threshold: 0.75
 initial_m: 2000.0
 target_m: 40000.0
 m_increment: 2000.0
@@ -30,7 +31,7 @@ device: cuda
 debug_critic: False
 debug_observation: False
 resume_from_checkpoint: None
-run_name: Dec 21: T4; MLP; 200 delta V; 1.5:0.5 
+run_name: Dec 22: T3; HAFN; 1.5:0.8
 
 --- MPE_POMDP_EnvCfg ---
 evader_policy_type: Scripted
@@ -59,7 +60,7 @@ reward_collision_weight: 1.0
 max_collision_penalty: 10.0
 dt: 60.0
 p_dv_step: 1.5
-e_dv_step: 0.5
+e_dv_step: 0.8
 debug_rewards: False
 width: 800
 height: 600
@@ -98,7 +99,7 @@ device: cuda
 dim_mode: 2
 dist_collision: 2000.0
 distil_coef: 1.0
-e_dv_step: 0.5
+e_dv_step: 0.8
 ent_anneal_start_frac: 0.3
 ent_coef: 0.011
 evader_policy_level: 2
@@ -131,16 +132,17 @@ reward_phase_dist_weight: 1.0
 reward_time_weight: 0.02
 reward_timeout_penalty: -9
 ring_width_delta: 20000.0
-run_name: Dec 21: T4; MLP; 200 delta V; 1.5:0.5 
+run_name: Dec 22: T3; HAFN; 1.5:0.8
 seed: 42
 sma_perturb_end_update: 1500
 sma_perturb_km_max: 10.0
 sma_perturb_start_update: 500
-student_model_type: mlp
-success_rate_threshold: 0.7
+student_model_type: hafn
+success_rate_threshold: 0.75
 target_m: 40000.0
 total_timesteps: 5000000
 update_epochs: 5
+use_distillation: True
 use_fixed_seed_for_reset: False
 use_partial_obs: True
 vf_coef: 0.5
