@@ -125,7 +125,7 @@ TrainConfig类定义中，PPO 核心参数之后，学习率与优化器之前�
                 else:
                     distil_loss = torch.tensor(0.0).to(cfg.device)
                 
-                # === ERNIE 鲁棒性损失 ===
+                # --- ERNIE 鲁棒性损失 --- 
                 if cfg.use_ernie:
                     ernie_loss = compute_ernie_robustness_loss(
                         b_obs, b_hist, b_mask, agent, 
@@ -150,14 +150,8 @@ TrainConfig类定义中，PPO 核心参数之后，学习率与优化器之前�
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
 
 在其后添加：
-
-        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-        writer.add_scalar("losses/entropy_loss", (-current_ent_coef * entropy_loss).item(), global_step)
-        writer.add_scalar("losses/distillation_loss", distil_loss.item(), global_step)
-        writer.add_scalar("losses/total_loss", loss.item(), global_step)
         
-        # === ERNIE 鲁棒性训练日志 ===
+        # --- ERNIE 鲁棒性训练日志 --- 
         if cfg.use_ernie:
             writer.add_scalar("losses/ernie_robustness_loss", ernie_loss.item(), global_step)
             writer.add_scalar("ernie/epsilon", cfg.ernie_epsilon, global_step)
