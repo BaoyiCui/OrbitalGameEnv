@@ -1,0 +1,9 @@
+torch
+torchvision
+torchaudio
+numpy
+matplotlib
+tqdm
+imageio
+gymnasium
+pettingzoo
