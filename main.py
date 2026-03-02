@@ -1,4 +1,4 @@
-from env.pe_env import PEEnv, PEEnvCfg
+from scripts.env.pe_env import PEEnv
 
 
 def train(env_fn, steps=1e4, seed:int | None=0, **env_kwargs ):

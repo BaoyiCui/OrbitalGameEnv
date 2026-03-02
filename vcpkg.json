@@ -1,0 +1,8 @@
+{
+  "name": "orbital-game-env",
+  "version": "0.1.0",
+  "dependencies": [
+    "gtest",
+    "eigen3"
+  ]
+}
