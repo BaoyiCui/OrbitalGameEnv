@@ -5,8 +5,6 @@
 #ifndef ORBITALGAMEENV_CONSTANTS_H
 #define ORBITALGAMEENV_CONSTANTS_H
 
-#include "oge/common/constants.h"
-
 namespace oge
 {
     // 地球引力常数 (km^3/s^2)

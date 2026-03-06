@@ -5,47 +5,65 @@
 #ifndef ORBITALGAMEENV_ORBITAL_GAME_ENVIRONMENT_H
 #define ORBITALGAMEENV_ORBITAL_GAME_ENVIRONMENT_H
 
-
-
 #include "oge/simcore/propagator.h"
 #include "oge/environment/oge_state.h"
+#include "oge/environment/oge_settings.h"
 
 #include <string>
 #include <vector>
+#include <random>
 
-namespace oge {
-    class OrbitalGameEnvironment {
+namespace oge
+{
+    class OrbitalGameEnvironment
+    {
     public:
-        OrbitalGameEnvironment();
+        explicit OrbitalGameEnvironment(OGESettings& settings);
 
         /** Reset the environment to its start state. */
         void reset();
 
         void act(
-            std::vector<Eigen::Vector3d> &agents_actions,
-            std::vector<double> &agents_rewards
+            std::vector<Eigen::Vector3d>& agents_actions,
+            std::vector<double>& agents_rewards
         );
 
         bool isTerminal() const;
 
         bool isTruncated() const;
 
+        void getObservations(std::vector<Eigen::Matrix<double, 18, 1>>& observations);
+        void getRewards(std::vector<double>& rewards);
+
+        static bool almost_equal(double a, double b, double epsilon = 1e-12)
+        {
+            return std::abs(a - b) < epsilon;
+        }
+
     private:
         void processDynamics(
             std::vector<Eigen::Vector3d>& actions
         );
+        void checkAlive();
 
     private:
-        // Agents' states
-        std::vector<std::string> agent_ids;
-        std::vector<SatState> agents_states; // agents_states[0] is evader's states
-
+        // simulation settings
         const double dv_max_per_step_p; // pursuer's max dv per step, km/s
         const double dv_max_per_step_e; // evader's max dv per step, km/s
-        const double capture_distance;  // km
-        const double timestep;          // s
-        const double terminal_time;     // s
-        double current_time;            // s
+        const double capture_distance; // km
+        const double timestep; // s
+        const double terminal_time; // s
+        // Agents' states
+        const int num_pursuers;
+        const int num_evaders;
+        const int num_agents;
+        std::vector<std::string> agent_ids;
+        std::vector<SatState> agents_states; // the first num_evaders elements of agents_states are evaders' states
+
+        double current_time; // s
+
+        // random generator
+        std::mt19937 _rng;
     };
 }
 

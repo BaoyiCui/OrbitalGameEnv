@@ -25,8 +25,8 @@ add_library(oge OBJECT
         environment/orbital_game_environment.h
         environment/orbital_game_environment.cpp
         common/constants.cpp
-        environment/oge_wrapper.h
-        environment/oge_wrapper.cpp
+        environment/oge_settings.h
+        environment/oge_settings.cpp
 )
 
 find_package(Threads REQUIRED)
