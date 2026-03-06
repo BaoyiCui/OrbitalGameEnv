@@ -11,19 +11,27 @@ import os
 # 导入父类
 from .mpe_env import MPEEnv, MPEEnvCfg
 
-# ================= Ctypes Interface Start =================
+# ================= Ctypes Interface Start (已修改) =================
 # 尝试加载库，失败则回退到 ECI
 try:
-    # 请根据实际路径修改
-    so_path = "/home/star/Downloads/gemini-cli-main/OrbitalGameEnv/demos/OrbitLib/so/X86/libOrbit.so"
-    if not os.path.exists(so_path):
-        # 尝试相对路径
-        so_path = os.path.join(os.path.dirname(__file__), "..", "OrbitLib", "so", "X86", "libOrbit.so")
+    # 1. 优先尝试相对路径 (更通用)
+    # 逻辑: 当前文件在 .../HLS_LLS_2D/env/
+    # 目标在 .../HLS_LLS_2D/demos/OrbitLib/so/X86/
+    current_dir = os.path.dirname(os.path.abspath(__file__)) # .../env
+    project_root = os.path.dirname(current_dir)              # .../HLS_LLS_2D
     
+    so_path = os.path.join(project_root, "demos", "OrbitLib", "so", "X86", "libOrbit.so")
+
+    # 2. 如果相对路径找不到，使用绝对路径兜底 (针对你的环境)
+    if not os.path.exists(so_path):
+        so_path = "/home/star/Downloads/gemini-cli-main/HLS_LLS_2D/demos/OrbitLib/so/X86/libOrbit.so"
+    
+    # 3. 加载动态库
     if os.path.exists(so_path):
+        # print(f"Loading OrbitLib from: {so_path}") # 调试时可取消注释
         orbit_lib_c = ctypes.CDLL(so_path)
     else:
-        raise FileNotFoundError("libOrbit.so not found")
+        raise FileNotFoundError(f"libOrbit.so not found at: {so_path}")
         
 except Exception as e:
     print(f"[93mWarning: Failed to load libOrbit.so ({e}). LVLH transformation disabled.")
@@ -496,5 +504,3 @@ class MPE_POMDP_Env(MPEEnv):
                         f'history_input_{evader_id}': rel_hist_symlog,
                         f'history_mask_{evader_id}': hist_mask
                     })
-    
-    
