@@ -10,7 +10,8 @@
 #include "../common/constants.h"
 #include "oge/simcore/propagator.h"
 
-namespace oge {
+namespace oge
+{
     /**
      * This function evaluates the Stumpff function S(z) according to Eq 3.49.
      * @param z input argument
@@ -34,9 +35,41 @@ namespace oge {
      * @param [output] f    the Lagrange f coefficient (dimensionless)
      * @param [output] g    the Lagrange g coefficient (s)
      */
-    void f_and_g(double x, double t, double ro, double a, double &f, double &g);
+    void f_and_g(double x, double t, double ro, double a, double& f, double& g);
 
-    void fDot_and_gDot(double x, double r, double ro, double a, double &fdot, double &gdot);
+    void fDot_and_gDot(double x, double r, double ro, double a, double& fdot, double& gdot);
+
+    /**
+     * This function computes the state vector (r,v) from the classical orbital elements (coe).
+     * @param[in] coe orbital elements [a, e, incl, RA, w, TA]
+     * - a semimajor axis (km)
+     * - e eccentricity
+     * - incl inclination of the orbit (rad)
+     * - RA right ascension of the ascending node (rad)
+     * - w argument of perigee (rad)
+     * - TA true anomaly (rad)
+     * @param[out] R position vector in the geocentric equatorial frame (km)
+     * @param[out] V velocity vector in the geocentric equatorial frame (km/s)
+     */
+    void coe2rv(const Eigen::Matrix<double, 6, 1>& coe, Eigen::Vector3d& R, Eigen::Vector3d& V);
+
+    /**
+     * This function computes the classical orbital elements (coe)
+     * from the state vector (R,V) using Algorithm 4.1.
+     * @param R position vector in the geocentric equatorial frame (km)
+     * @param V velocity vector in the geocentric equatorial frame (km/s)
+     * @param coe vector of orbital elements [a, e, incl, RA, w, TA]
+     * - a semimajor axis (km)
+     * - e eccentricity
+     * - incl inclination of the orbit (rad)
+     * - RA right ascension of the ascending node (rad)
+     * - w argument of perigee (rad)
+     * - TA true anomaly (rad))
+     */
+    void rv2coe(const Eigen::Vector3d& R, const Eigen::Vector3d& V, Eigen::Matrix<double, 6, 1>& coe);
+
+    double rad2deg(double rad);
+    double deg2rad(double deg);
 }
 
 #endif //ORBITALGAMEENV_UTILS_H

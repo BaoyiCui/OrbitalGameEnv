@@ -4,62 +4,91 @@
 
 #include "orbital_game_environment.h"
 
+// #include <csignal>
+
+
 oge::OrbitalGameEnvironment::OrbitalGameEnvironment() :
-    dv_max_per_step(0.01), timestep(60), terminal_time(7200)
+    dv_max_per_step_e(0.01),
+    dv_max_per_step_p(0.01),
+    timestep(60),
+    terminal_time(7200),
+    capture_distance(30)
 {
 }
 
 bool oge::OrbitalGameEnvironment::isTerminal() const
 {
-    if ()
-
+    for (int i = 1; i < agents_states.size(); ++i)
+    {
+        if ((agents_states[0].r_j2000 - agents_states[i].r_j2000).norm() < capture_distance)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool oge::OrbitalGameEnvironment::isTruncated() const
 {
-    if (current_time >= terminal_time)
+    for (int i = 1; i < agents_states.size(); ++i)
     {
-        return true;
+        // 检查pursuers的燃料是否耗尽
     }
-    else
-    {
-        return false;
-    }
+
+    return current_time >= terminal_time;
 }
 
 void oge::OrbitalGameEnvironment::reset()
 {
+    // TODO: 在这里初始化状态和燃料
 }
 
-void oge::OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d> actions)
+void oge::OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
 {
+    if (actions.size() != agents_states.size())
+    {
+        throw std::invalid_argument("actions.size() != agents_states.size()");
+    }
+
     for (int i = 0; i < actions.size(); ++i)
     {
         // constraints on dv
         Eigen::Vector3d dv_modified;
-        if (actions[i].norm() > std::min(dv_max_per_step, agent_states[i].dv_remain))
+        if (actions[i].norm() > std::min(dv_max_per_step, agents_states[i].dv_remain))
         {
-            dv_modified = std::min(dv_max_per_step, agent_states[i].dv_remain) * actions[i].normalized();
+            dv_modified = std::min(dv_max_per_step, agents_states[i].dv_remain) * actions[i].normalized();
         }
         else
         {
             dv_modified = actions[i];
         }
         // update agent's velocity in J2000
-        agent_states[i].v_j2000 += dv_modified;
+        agents_states[i].v_j2000 += dv_modified;
 
         // propagation
         Eigen::Vector3d r_j2000_new, v_j2000_new;
-        rv_from_r0v0(agent_states[i].r_j2000, agent_states[i].v_j2000, timestep, r_j2000_new, v_j2000_new);
-        agent_states[i].r_j2000 = r_j2000_new;
-        agent_states[i].v_j2000 = v_j2000_new;
+        rv_from_r0v0(agents_states[i].r_j2000, agents_states[i].v_j2000, timestep, r_j2000_new, v_j2000_new);
+        agents_states[i].r_j2000 = r_j2000_new;
+        agents_states[i].v_j2000 = v_j2000_new;
     }
     current_time += timestep;
 }
 
 void oge::OrbitalGameEnvironment::act(
-    std::vector<Eigen::Vector3d> pursuers_actions,
-    Eigen::Vector3d evader_actions,
-    std::vector<double>& pursuers_rewards)
+    std::vector<Eigen::Vector3d>& agents_actions,
+    std::vector<double>& agents_rewards)
 {
+    if (agents_actions.size() != agents_states.size())
+    {
+        throw std::invalid_argument("agents_actions.size() != agents_states.size()");
+    }
+    processDynamics(agents_actions);
+
+    // TODO: get observations
+
+    // TODO: get rewards
+
+    // TODO: get truncations
+
+    // TODO: get terminations
 }

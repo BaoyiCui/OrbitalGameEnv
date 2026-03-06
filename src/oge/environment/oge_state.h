@@ -5,7 +5,7 @@
 #ifndef ORBITALGAMEENV_OGE_STATE_H
 #define ORBITALGAMEENV_OGE_STATE_H
 
-#include "Eigen/Dense"
+#include <Eigen/Dense>
 
 namespace oge {
     // satellite's state
