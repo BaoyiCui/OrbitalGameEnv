@@ -29,7 +29,7 @@ namespace oge {
 
         bool isTerminal();
 
-        bool isTruncated();
+        bool isTruncated() const;
 
     private:
         void processDynamics(
@@ -39,7 +39,7 @@ namespace oge {
     private:
         // Agents' states
         std::vector<std::string> agent_ids;
-        std::vector<SatState> agent_states;
+        std::vector<SatState> agent_states; // agent_states[0] is evader's states
 
         const double dv_max_per_step;
         const double timestep;

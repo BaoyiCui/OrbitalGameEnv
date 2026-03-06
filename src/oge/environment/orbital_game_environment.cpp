@@ -4,25 +4,45 @@
 
 #include "orbital_game_environment.h"
 
-oge::OrbitalGameEnvironment::OrbitalGameEnvironment() : {
+oge::OrbitalGameEnvironment::OrbitalGameEnvironment() :
+    dv_max_per_step(0.01), timestep(60), terminal_time(7200)
+{
 }
 
-bool oge::OrbitalGameEnvironment::isTerminal() {
+bool oge::OrbitalGameEnvironment::isTerminal() const
+{
+    if ()
+
 }
 
-bool oge::OrbitalGameEnvironment::isTruncated() {
+bool oge::OrbitalGameEnvironment::isTruncated() const
+{
+    if (current_time >= terminal_time)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
-void oge::OrbitalGameEnvironment::reset() {
+void oge::OrbitalGameEnvironment::reset()
+{
 }
 
-void oge::OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d> actions) {
-    for (int i = 0; i < actions.size(); ++i) {
+void oge::OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d> actions)
+{
+    for (int i = 0; i < actions.size(); ++i)
+    {
         // constraints on dv
         Eigen::Vector3d dv_modified;
-        if (actions[i].norm() > std::min(dv_max_per_step, agent_states[i].dv_remain)) {
+        if (actions[i].norm() > std::min(dv_max_per_step, agent_states[i].dv_remain))
+        {
             dv_modified = std::min(dv_max_per_step, agent_states[i].dv_remain) * actions[i].normalized();
-        } else {
+        }
+        else
+        {
             dv_modified = actions[i];
         }
         // update agent's velocity in J2000
@@ -40,6 +60,6 @@ void oge::OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d> a
 void oge::OrbitalGameEnvironment::act(
     std::vector<Eigen::Vector3d> pursuers_actions,
     Eigen::Vector3d evader_actions,
-    std::vector<double> &pursuers_rewards) {
-
+    std::vector<double>& pursuers_rewards)
+{
 }

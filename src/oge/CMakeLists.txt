@@ -27,7 +27,7 @@ add_library(oge OBJECT
         common/constants.cpp
         environment/oge_wrapper.h
         environment/oge_wrapper.cpp
-        games/game_settings.h)
+)
 
 find_package(Threads REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
