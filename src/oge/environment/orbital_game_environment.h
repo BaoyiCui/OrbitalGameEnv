@@ -18,7 +18,7 @@ namespace oge
     class OrbitalGameEnvironment
     {
     public:
-        explicit OrbitalGameEnvironment(OGESettings& settings);
+        explicit OrbitalGameEnvironment(OGESettings& settings_);
 
         /** Reset the environment to its start state. */
         void reset();
@@ -49,7 +49,12 @@ namespace oge
         );
         void checkAlive();
 
+        double getFormationReward();
+
+
     private:
+        const OGESettings& settings;
+
         // simulation settings
         const double dv_max_per_step_p; // pursuer's max dv per step, km/s
         const double dv_max_per_step_e; // evader's max dv per step, km/s

@@ -24,6 +24,14 @@ namespace oge
                 throw std::invalid_argument("OGESettings: num_pursuers must be > 0");
         }
 
+        // initial conditions
+        double sma_base; // base semi-major axis (km)
+        double ecc_base; // base eccentricity
+        double incl_base; // base inclination (rad)
+        double RA_base; // base right ascension of the ascending node (rad)
+        double w_base; // base argument of perigee (rad)
+        double TA_base; // base true anomaly (rad)
+
         double dv_max_per_step_p;
         double dv_max_per_step_e;
         double capture_distance;

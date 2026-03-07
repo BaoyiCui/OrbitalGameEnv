@@ -7,16 +7,17 @@
 namespace oge
 {
     OrbitalGameEnvironment::OrbitalGameEnvironment(
-        OGESettings& settings
+        OGESettings& settings_
     ) :
-        dv_max_per_step_p(settings.dv_max_per_step_p),
-        dv_max_per_step_e(settings.dv_max_per_step_e),
-        capture_distance(settings.capture_distance),
-        timestep(settings.timestep),
-        terminal_time(settings.terminal_time),
-        num_pursuers(settings.num_pursuers),
-        num_evaders(settings.num_evaders),
-        num_agents(settings.num_pursuers + settings.num_evaders),
+        settings(settings_),
+        dv_max_per_step_p(settings_.dv_max_per_step_p),
+        dv_max_per_step_e(settings_.dv_max_per_step_e),
+        capture_distance(settings_.capture_distance),
+        timestep(settings_.timestep),
+        terminal_time(settings_.terminal_time),
+        num_pursuers(settings_.num_pursuers),
+        num_evaders(settings_.num_evaders),
+        num_agents(settings_.num_pursuers + settings_.num_evaders),
         current_time(0.0)
     {
         settings.validate();
@@ -129,13 +130,19 @@ namespace oge
 
     void OrbitalGameEnvironment::getRewards(std::vector<double>& rewards)
     {
-        // calculate evader's reward
+        rewards.resize(num_agents);
+
+        std::vector<double> dists_to_evader;
+        dists_to_evader.reserve(num_pursuers);
+        for (int p = num_evaders; p < num_agents; ++p)
+        {
+            dists_to_evader[p - num_evaders] = agents_states[p].r_j2000 - agents_states[0].r_j2000;
+        }
     }
 
 
     void OrbitalGameEnvironment::reset()
     {
-        // TODO: 在这里初始化状态和燃料
     }
 
     void OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
@@ -211,6 +218,16 @@ namespace oge
         }
     }
 
+    double OrbitalGameEnvironment::getFormationReward()
+    {
+        if (num_pursuers < 2)
+            return 0.0;
+        for (int p=num_evaders; p < num_agents; ++p)
+        {
+            // TODO
+        }
+    }
+
     void OrbitalGameEnvironment::act(
         std::vector<Eigen::Vector3d>& agents_actions,
         std::vector<double>& agents_rewards)
@@ -225,6 +242,7 @@ namespace oge
         // TODO: get observations
 
         // TODO: get rewards
+        getRewards(agents_rewards);
 
         // TODO: get truncations
 
