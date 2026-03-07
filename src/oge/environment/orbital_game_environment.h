@@ -32,8 +32,11 @@ namespace oge
 
         bool isTruncated() const;
 
-        void getObservations(std::vector<Eigen::Matrix<double, 18, 1>>& observations);
+        void getObservations(std::vector<Eigen::VectorXd>& observations);
         void getRewards(std::vector<double>& rewards);
+
+        /** Returns the observation vector size for agent at index agent_idx. */
+        int getObsSize(int agent_idx) const;
 
         static bool almost_equal(double a, double b, double epsilon = 1e-12)
         {

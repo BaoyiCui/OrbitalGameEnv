@@ -172,4 +172,60 @@ namespace oge
 
         coe << a, e, incl, RA, w, TA;
     }
+
+    void DCM_J2000_to_LVLH(const Eigen::Vector3d& RRefJ2000, const Eigen::Vector3d& VRefJ2000, Eigen::Matrix3d& DCM)
+    {
+        const Eigen::Vector3d x_hat = RRefJ2000.normalized();
+        const Eigen::Vector3d z_hat = RRefJ2000.cross(VRefJ2000).normalized();
+        const Eigen::Vector3d y_hat = z_hat.cross(x_hat);
+
+        DCM.row(0) = x_hat;
+        DCM.row(1) = y_hat;
+        DCM.row(2) = z_hat;
+    }
+
+    void DCM_LVLH_to_J2000(const Eigen::Vector3d& RRefJ2000, const Eigen::Vector3d& VRefJ2000, Eigen::Matrix3d& DCM)
+    {
+        Eigen::Matrix3d DCM_J2000_LVLH;
+        DCM_J2000_to_LVLH(RRefJ2000, VRefJ2000, DCM_J2000_LVLH);
+        DCM = DCM_J2000_LVLH.transpose();
+    }
+
+    void RV_J20002LVLH(
+        const Eigen::Vector3d& RRefJ2000,
+        const Eigen::Vector3d& VRefJ2000,
+        const Eigen::Vector3d& RJ2000,
+        const Eigen::Vector3d& VJ2000,
+        Eigen::Vector3d& RLVLH,
+        Eigen::Vector3d& VLVLH)
+    {
+        // construct LVLH frame
+        Eigen::Matrix3d DCM;
+        DCM_J2000_to_LVLH(RRefJ2000, VRefJ2000, DCM);
+        // calculate relative position
+        Eigen::Vector3d RRel = RJ2000 - RRefJ2000;
+        RLVLH = DCM * RRel;
+        // calculate relative velocity
+        Eigen::Vector3d wJ2000 = RRefJ2000.cross(VRefJ2000) / pow(RRefJ2000.norm(), 2);
+        Eigen::Vector3d VRel = (VJ2000 - VRefJ2000) - wJ2000.cross(RRel);
+        VLVLH = DCM * VRel;
+    }
+
+    void RV_LVLH2J2000(
+        const Eigen::Vector3d& RRefJ2000,
+        const Eigen::Vector3d& VRefJ2000,
+        const Eigen::Vector3d& R_LVLH,
+        const Eigen::Vector3d& V_LVLH,
+        Eigen::Vector3d& R_J2000,
+        Eigen::Vector3d& V_J2000)
+    {
+        Eigen::Matrix3d DCM;
+        DCM_LVLH_to_J2000(RRefJ2000, VRefJ2000, DCM);
+        // relative position in J2000
+        const Eigen::Vector3d RRel = DCM * R_LVLH;
+        R_J2000 = RRel + RRefJ2000;
+        // angular velocity of LVLH frame in J2000
+        const Eigen::Vector3d wJ2000 = RRefJ2000.cross(VRefJ2000) / pow(RRefJ2000.norm(), 2);
+        V_J2000 = DCM * V_LVLH + VRefJ2000 + wJ2000.cross(RRel);
+    }
 }

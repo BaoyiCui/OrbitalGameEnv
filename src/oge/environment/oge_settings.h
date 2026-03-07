@@ -5,6 +5,8 @@
 #ifndef ORBITALGAMEENV_SETTINGS_H
 #define ORBITALGAMEENV_SETTINGS_H
 
+#include <stdexcept>
+
 namespace oge
 {
     struct OGESettings
@@ -12,7 +14,15 @@ namespace oge
         int random_seed;
 
         int num_pursuers;
-        int num_evaders;
+        int num_evaders = 1;
+
+        void validate() const
+        {
+            if (num_evaders != 1)
+                throw std::invalid_argument("OGESettings: num_evaders must be 1");
+            if (num_pursuers <= 0)
+                throw std::invalid_argument("OGESettings: num_pursuers must be > 0");
+        }
 
         double dv_max_per_step_p;
         double dv_max_per_step_e;

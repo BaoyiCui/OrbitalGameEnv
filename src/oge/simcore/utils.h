@@ -70,6 +70,51 @@ namespace oge
 
     double rad2deg(double rad);
     double deg2rad(double deg);
+
+    void DCM_LVLH_to_J2000(const Eigen::Vector3d& RRefJ2000, const Eigen::Vector3d& VRefJ2000, Eigen::Matrix3d& DCM);
+    void DCM_J2000_to_LVLH(const Eigen::Vector3d& RRefJ2000, const Eigen::Vector3d& VRefJ2000, Eigen::Matrix3d& DCM);
+
+    /**
+     * This function transforms a position and velocity vector from the LVLH frame
+     * to the J2000 inertial frame, given a reference orbit in J2000.
+     * The LVLH frame is defined with x-axis along the radial direction,
+     * z-axis along the orbit normal, and y-axis completing the right-handed system
+     * (approximately along the velocity direction).
+     * @param[in] RRefJ2000 position vector of the reference orbit in the J2000 frame (km)
+     * @param[in] VRefJ2000 velocity vector of the reference orbit in the J2000 frame (km/s)
+     * @param[in] R_LVLH position vector in the LVLH frame (km)
+     * @param[in] V_LVLH velocity vector in the LVLH frame (km/s)
+     * @param[out] R_J2000 position vector in the J2000 frame (km)
+     * @param[out] V_J2000 velocity vector in the J2000 frame (km/s)
+     */
+    void RV_LVLH2J2000(
+        const Eigen::Vector3d& RRefJ2000,
+        const Eigen::Vector3d& VRefJ2000,
+        const Eigen::Vector3d& R_LVLH,
+        const Eigen::Vector3d& V_LVLH,
+        Eigen::Vector3d& R_J2000,
+        Eigen::Vector3d& V_J2000);
+
+    /**
+     * This function transforms a position and velocity vector from the J2000 inertial frame
+     * to the LVLH frame, given a reference orbit in J2000.
+     * The LVLH frame is defined with x-axis along the radial direction,
+     * z-axis along the orbit normal, and y-axis completing the right-handed system
+     * (approximately along the velocity direction).
+     * @param[in] RRefJ2000 position vector of the reference orbit in the J2000 frame (km)
+     * @param[in] VRefJ2000 velocity vector of the reference orbit in the J2000 frame (km/s)
+     * @param[in] R_J2000 position vector in the J2000 frame (km)
+     * @param[in] V_J2000 velocity vector in the J2000 frame (km/s)
+     * @param[out] R_LVLH position vector in the LVLH frame (km)
+     * @param[out] V_LVLH velocity vector in the LVLH frame (km/s)
+     */
+    void RV_J20002LVLH(
+        const Eigen::Vector3d& RRefJ2000,
+        const Eigen::Vector3d& VRefJ2000,
+        const Eigen::Vector3d& R_J2000,
+        const Eigen::Vector3d& V_J2000,
+        Eigen::Vector3d& R_LVLH,
+        Eigen::Vector3d& V_LVLH);
 }
 
 #endif //ORBITALGAMEENV_UTILS_H

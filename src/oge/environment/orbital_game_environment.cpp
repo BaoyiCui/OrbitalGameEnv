@@ -9,15 +9,17 @@ namespace oge
     OrbitalGameEnvironment::OrbitalGameEnvironment(
         OGESettings& settings
     ) :
+        dv_max_per_step_p(settings.dv_max_per_step_p),
+        dv_max_per_step_e(settings.dv_max_per_step_e),
+        capture_distance(settings.capture_distance),
+        timestep(settings.timestep),
+        terminal_time(settings.terminal_time),
         num_pursuers(settings.num_pursuers),
         num_evaders(settings.num_evaders),
         num_agents(settings.num_pursuers + settings.num_evaders),
-        dv_max_per_step_e(settings.dv_max_per_step_e),
-        dv_max_per_step_p(settings.dv_max_per_step_p),
-        timestep(settings.timestep),
-        terminal_time(settings.terminal_time),
-        capture_distance(settings.capture_distance)
+        current_time(0.0)
     {
+        settings.validate();
         agent_ids.reserve(num_agents);
         agents_states.reserve(num_agents);
         // initialize agent_ids
@@ -57,14 +59,77 @@ namespace oge
         return current_time >= terminal_time;
     }
 
-    void OrbitalGameEnvironment::getObservations(std::vector<Eigen::Matrix<double, 18, 1>>& observations)
+    int OrbitalGameEnvironment::getObsSize(int agent_idx) const
     {
-        // calculate evader's observation
+        // For pursuer
+        //      The first 6 elements are RV in J2000 frame.
+        //      The last 3 elements are target position in this pursuer's LVLH frame.
+        //      The remaining elements are other pursuers' positions in this pursuer's LVLH frame.
+        // For evader
+        //      The first 6 elements are RV in J2000 frame.
+        //      The other elements are pursuers' positions in this evader's LVLH frame.
+        // This observation's structure only supports OGE with a single evader.
+        return 3 * (num_agents + 1);
+    }
 
-        // calculate pursuer's observation
-        for (int i = num_evaders; i < num_agents; ++i)
+    void OrbitalGameEnvironment::getObservations(std::vector<Eigen::VectorXd>& observations)
+    {
+        observations.resize(num_agents);
+        for (int e = 0; e < num_evaders; ++e)
         {
+            observations[e].resize(getObsSize(e));
+            observations[e].segment<3>(0) = agents_states[e].r_j2000;
+            observations[e].segment<3>(3) = agents_states[e].v_j2000;
+            for (int p = num_evaders; p < num_agents; ++p)
+            {
+                Eigen::Vector3d r_p_lvlh;
+                Eigen::Vector3d v_p_lvlh;
+                RV_J20002LVLH(
+                    agents_states[e].r_j2000, agents_states[e].v_j2000,
+                    agents_states[p].r_j2000, agents_states[p].v_j2000,
+                    r_p_lvlh, v_p_lvlh
+                );
+                observations[e].segment<3>(6 + 3 * (p - num_evaders)) = r_p_lvlh;
+            }
         }
+
+        for (int p = num_evaders; p < num_agents; ++p)
+        {
+            observations[p].resize(getObsSize(p));
+            observations[p].segment<3>(0) = agents_states[p].r_j2000;
+            observations[p].segment<3>(3) = agents_states[p].v_j2000;
+
+            // other pursuers' positions in this pursuer's LVLH frame
+            int offset = 6;
+            for (int other_p = num_evaders; other_p < num_agents; ++other_p)
+            {
+                if (other_p == p)
+                    continue;
+
+                Eigen::Vector3d r_other_p_lvlh, v_other_p_lvlh;
+                RV_J20002LVLH(
+                    agents_states[p].r_j2000, agents_states[p].v_j2000,
+                    agents_states[other_p].r_j2000, agents_states[other_p].v_j2000,
+                    r_other_p_lvlh, v_other_p_lvlh
+                );
+                observations[p].segment<3>(offset) = r_other_p_lvlh;
+                offset += 3;
+            }
+
+            // evader (target) position in this pursuer's LVLH frame — last 3 elements
+            Eigen::Vector3d r_e_lvlh, v_e_lvlh;
+            RV_J20002LVLH(
+                agents_states[p].r_j2000, agents_states[p].v_j2000,
+                agents_states[0].r_j2000, agents_states[0].v_j2000,
+                r_e_lvlh, v_e_lvlh
+            );
+            observations[p].segment<3>(getObsSize(p) - 3) = r_e_lvlh;
+        }
+    }
+
+    void OrbitalGameEnvironment::getRewards(std::vector<double>& rewards)
+    {
+        // calculate evader's reward
     }
 
 
@@ -89,12 +154,12 @@ namespace oge
 
             // constraints on dv
             Eigen::Vector3d dv_modified;
-            double dv_max_per_step = i == 0 ? dv_max_per_step_e : dv_max_per_step_p;
+            double dv_max_per_step = (i < num_evaders) ? dv_max_per_step_e : dv_max_per_step_p;
             if (agents_states[i].dv_remain <= 0.0)
             {
-                throw; // TODO 这里如果抛出异常说明act中的顺序有问题
+                throw std::runtime_error("Agent " + std::to_string(i) + " has no remaining dv but is still alive");
             }
-            if (almost_equal(actions[i].norm(), 0.0))
+            if (!almost_equal(actions[i].norm(), 0.0))
             {
                 if (actions[i].norm() > std::min(dv_max_per_step, agents_states[i].dv_remain))
                 {
