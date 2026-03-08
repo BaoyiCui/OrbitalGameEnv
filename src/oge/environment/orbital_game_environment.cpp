@@ -128,16 +128,13 @@ namespace oge
         }
     }
 
-    void OrbitalGameEnvironment::getRewards(std::vector<double>& rewards)
+    void OrbitalGameEnvironment::getRewards(const std::vector<Eigen::Vector3d>& agent_actions,
+                                            std::vector<double>& rewards) const
     {
         rewards.resize(num_agents);
 
         std::vector<double> dists_to_evader;
         dists_to_evader.reserve(num_pursuers);
-        for (int p = num_evaders; p < num_agents; ++p)
-        {
-            dists_to_evader[p - num_evaders] = agents_states[p].r_j2000 - agents_states[0].r_j2000;
-        }
     }
 
 
@@ -218,14 +215,117 @@ namespace oge
         }
     }
 
-    double OrbitalGameEnvironment::getFormationReward()
+    double OrbitalGameEnvironment::getFormationReward() const
     {
+        // Formation reward only makes sense when there are multiple pursuers.
         if (num_pursuers < 2)
             return 0.0;
-        for (int p=num_evaders; p < num_agents; ++p)
+
+        // Accumulate the unit direction vectors from the evader (index 0) to each pursuer.
+        // If pursuers surround the evader uniformly, their unit vectors cancel out and
+        // sum_directions approaches zero — which is the ideal formation.
+        Eigen::Vector3d sum_directions = Eigen::Vector3d::Zero();
+        for (int p = num_evaders; p < num_agents; ++p)
         {
-            // TODO
+            double r_diff_j2000_norm = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
+            // Skip pursuers that coincide with the evader to avoid division by zero.
+            if (almost_equal(r_diff_j2000_norm, 0.0))
+                continue;
+            sum_directions += (agents_states[p].r_j2000 - agents_states[0].r_j2000) / r_diff_j2000_norm;
         }
+
+        // reward = weight / (1 + ||sum_directions||)
+        // The norm of sum_directions is 0 for perfect encirclement and up to num_pursuers
+        // when all pursuers are on the same side. Dividing 1 by (1 + norm) maps this to (0, 1].
+        const double reward_formation = settings.reward_formation_weight * (1.0 / (1.0 + sum_directions.norm()));
+
+        return reward_formation;
+    }
+
+    double OrbitalGameEnvironment::getDistanceReward(int p) const
+    {
+        // TODO
+        double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
+
+        Eigen::Matrix<double, 6, 1> coe_p, coe_e;
+        rv2coe(agents_states[p].r_j2000, agents_states[p].v_j2000, coe_p);
+        rv2coe(agents_states[0].r_j2000, agents_states[0].v_j2000, coe_e);
+
+        double TA_delta = std::fmod((coe_p - coe_e)(5) + M_PI, 2.0 * M_PI) - M_PI;
+        double sma_diff_ratio = (coe_p - coe_e)(0) / coe_e(0);
+
+        // Far field
+        double drift_product = TA_delta * sma_diff_ratio;
+        double reward_far, reward_near;
+        if (drift_product > 0.0)
+        {
+            reward_far = -1.0 - std::abs(sma_diff_ratio) * 2000.0;
+        }
+        else
+        {
+            // python code:
+            // r_drift = np.clip(np.abs(sma_diff_ratio) * 1000.0, 0.0, 2.0)
+            // r_angle = (np.pi - np.abs(delta_theta)) / np.pi
+            // R_Far = 1.0 * r_drift + 0.5 * r_angle
+            double r_drift = std::clamp(std::abs(sma_diff_ratio) * 1000.0, 0.0, 2.0);
+            double r_angle = (M_PI - std::abs(TA_delta)) / M_PI;
+            reward_far = 1.0 * r_drift + 0.5 * r_angle;
+        }
+
+        // TODO: Near field
+        double dist_normalized = distance / settings.capture_distance;
+        if (dist_normalized <= 1.0)
+        {
+        }
+        else if (dist_normalized <= 2.0)
+        {
+        }
+        else
+        {
+        }
+        double reward_energy = ;
+        reward_near =;
+
+        double alpha = std::abs(sma_diff_ratio) * 2000.0;
+        double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
+
+
+        return settings.reward_phase_dist_weight * total_reward;
+    }
+
+    double OrbitalGameEnvironment::getCaptureReward(int p) const
+    {
+        bool captured_team = false;
+        for (int i = num_evaders; i < num_agents; ++i)
+        {
+            if ((agents_states[i].r_j2000 - agents_states[0].r_j2000).norm() < settings.capture_distance)
+            {
+                captured_team = true;
+                break;
+            }
+        }
+
+        if (captured_team)
+        {
+            if ((agents_states[p].r_j2000 - agents_states[0].r_j2000).norm() < settings.capture_distance)
+            {
+                return settings.reward_capture_weight; // capture bonus
+            }
+
+            return 0.5 * settings.reward_capture_weight; // assistant capture bonus
+        }
+
+        return 0.0; // no capture
+    }
+
+    double OrbitalGameEnvironment::getFuelReward(int p, const std::vector<Eigen::Vector3d>& actions) const
+    {
+        return settings.reward_fuel_weight * actions[p - num_evaders].norm();;
+    }
+
+    double OrbitalGameEnvironment::getTimeReward() const
+    {
+        return settings.reward_time_weight;
     }
 
     void OrbitalGameEnvironment::act(
@@ -242,7 +342,7 @@ namespace oge
         // TODO: get observations
 
         // TODO: get rewards
-        getRewards(agents_rewards);
+        getRewards(agents_actions, agents_rewards);
 
         // TODO: get truncations
 

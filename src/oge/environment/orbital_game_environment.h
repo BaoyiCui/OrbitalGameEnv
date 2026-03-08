@@ -33,7 +33,7 @@ namespace oge
         bool isTruncated() const;
 
         void getObservations(std::vector<Eigen::VectorXd>& observations);
-        void getRewards(std::vector<double>& rewards);
+        void getRewards(const std::vector<Eigen::Vector3d>& agent_actions, std::vector<double>& rewards) const;
 
         /** Returns the observation vector size for agent at index agent_idx. */
         int getObsSize(int agent_idx) const;
@@ -49,8 +49,11 @@ namespace oge
         );
         void checkAlive();
 
-        double getFormationReward();
-
+        double getFormationReward() const;
+        double getDistanceReward(int p) const;
+        double getCaptureReward(int p) const;
+        double getFuelReward(int p, const std::vector<Eigen::Vector3d>& actions) const;
+        double getTimeReward() const;
 
     private:
         const OGESettings& settings;

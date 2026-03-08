@@ -16,14 +16,6 @@ namespace oge
         int num_pursuers;
         int num_evaders = 1;
 
-        void validate() const
-        {
-            if (num_evaders != 1)
-                throw std::invalid_argument("OGESettings: num_evaders must be 1");
-            if (num_pursuers <= 0)
-                throw std::invalid_argument("OGESettings: num_pursuers must be > 0");
-        }
-
         // initial conditions
         double sma_base; // base semi-major axis (km)
         double ecc_base; // base eccentricity
@@ -41,15 +33,19 @@ namespace oge
         double reward_time_weight;
         double reward_formation_weight;
         double reward_fuel_weight;
-        double capture_reward;
-        double reward_timeout_penalty;
-        double reward_fuelout_penalty;
-        double fuel_penalty_weight;
-
+        double reward_capture_weight;
+        double reward_timeout_weight;
+        double reward_fuelout_weight;
         double reward_advantage_weight;
+        double reward_phase_dist_weight;
+
+        // advantage reward
         int advantage_reward_horizon;
 
-        double reward_phase_dist_weight;
+        // phase dist reward
+        double phase_dist_transition_dist;
+
+        void validate() const;
     };
 }
 #endif //ORBITALGAMEENV_SETTINGS_H
