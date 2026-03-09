@@ -6,6 +6,12 @@
 
 namespace oge
 {
+    OGEInterface::OGEInterface()
+    {
+        settings = std::make_unique<OGESettings>();
+        environment = std::make_unique<OrbitalGameEnvironment>(*settings);
+    }
+
     void OGEInterface::getRewards(
         const std::vector<Eigen::Vector3d>& actions,
         std::vector<double>& rewards

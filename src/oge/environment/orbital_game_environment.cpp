@@ -49,6 +49,7 @@ namespace oge
         {
             agent_ids.push_back("p_" + std::to_string(i));
         }
+        reset();
     }
 
     bool OrbitalGameEnvironment::isTerminal() const
@@ -202,7 +203,7 @@ namespace oge
 
     void OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
     {
-        if (actions.size() != num_agents)
+        if (actions.size() != static_cast<size_t>(num_agents))
         {
             throw std::invalid_argument("actions.size() != num_agents");
         }
@@ -388,7 +389,7 @@ namespace oge
 
     void OrbitalGameEnvironment::act(std::vector<Eigen::Vector3d>& agents_actions)
     {
-        if (agents_actions.size() != num_agents)
+        if (agents_actions.size() != static_cast<size_t>(num_agents))
         {
             throw std::invalid_argument("agents_actions.size() != num_agents");
         }

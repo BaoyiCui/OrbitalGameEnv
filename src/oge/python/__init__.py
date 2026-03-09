@@ -1,5 +1,3 @@
-"""Python module for interacting with OGE c++ interface and gymnasium wrapper."""
-
 import importlib.metadata as metadata
 import os
 import platform
@@ -28,27 +26,12 @@ It can be downloaded from https://aka.ms/vs/16/release/vc_redist.x64.exe."""
     # This way we guarantee we load OUR DLLs.
     os.add_dll_directory(packagedir)
 
-__version__ = metadata.version(__package__)
+__version__= metadata.version(__package__)
 
-# Import native shared library
-from oge_py._oge_py import Action, OGEInterface, OGEState, LoggerMode
+from oge_py._oge_py import OGEState
 
-__all__ = ["Action", "OGEInterface", "OGEState", "LoggerMode"]
+__all__ = ["OGEState"]
 
 try:
-    from oge_py.env import OGEEnv, OGEEnvStepMetadata
-    from oge_py.vector_env import OGEVectorEnv
-
-    __all__ += ["OGEEnv", "OGEEnvStepMetadata", "OGEVectorEnv"]
-
-    from oge_py.registration import register_v0_envs
-
-    register_v0_envs()
-
-    # As the vector interface is an optional cmake build, it's not assumed to exist
-    from oge_py._oge_py import OGEVectorInterface
-
-    __all__ += ["OGEVectorInterface"]
-
-except ImportError:
-    pass
+    # TODO
+    from oge_py.env import

@@ -1,12 +1,21 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(OrbitalGameEnv VERSION 0.1.0 LANGUAGES CXX)
 
 # Build the C++ shared library
 option(BUILD_CPP_LIB "Build C++ Interface" ON)
 
 # Build the native Python bindings using pybind11
 option(BUILD_PYTHON_LIB "Build Python Interface" ON)
+
+# Set cmake module path
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
+
+# Overlay VCPKG custom triplets
+if (NOT DEFINED VCPKG_OVERLAY_TRIPLETS)
+    set(VCPKG_OVERLAY_TRIPLETS
+            "${CMAKE_MODULE_PATH}/custom-triplets"
+            CACHE STRING "")
+endif ()
 
 # Discover VCPKG default triplet
 if (DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
@@ -42,6 +51,14 @@ if (CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
     You should probably also remove CMakeFiles/ and CMakeCache.txt.
   ]=])
 endif ()
+
+include(ParseVersion)
+parse_version("version.txt" PREFIX OGE)
+project(oge
+        VERSION ${OGE_DEFAULT_VERSION}
+        LANGUAGES CXX
+)
+
 
 add_subdirectory(src/oge)
 

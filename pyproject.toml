@@ -1,0 +1,87 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.10",
+    "nanobind>=2.1.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "oge-py"
+description = "The Orbital Game Environment (OGE)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE.md"]
+keywords = ["reinforcement-learning", "orbital-game-environment"]
+authors = [
+    { name = "Baoyi Cui" }
+]
+maintainers = [
+    { name = "Baoyi Cui", email = "23B953023@stu.hit.edu.cn" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Aerospace"
+]
+dependencies = [
+    "numpy>=2.4.1",
+    "typing-extensions; python_version < '3.11'"
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+vector = [
+    "gymnasium>=1.2.0"
+]
+test = [
+    "pytest>=7.0",
+    "gymnasium>=1.2.0"
+]
+
+[tool.scikit-build]
+cmake.args = [
+    "-DBUILD_CPP_LIB=OFF",
+    "-DBUILD_PYTHON_LIB=ON",
+    "-DBUILD_VECTOR_LIB=OFF"
+]
+cmake.build-type = "Release"
+metadata.version.provider = "scikit_build_core.metadata.regex"
+metadata.version.input = "version.txt"
+metadata.version.regex = "(?P<value>.+)"
+
+[tool.cibuildwheel]
+# Skip 32-bit wheels, PyPy & musllinux
+skip = ["*-win32", "*i686", "*-musllinux*"]
+
+build-frontend = "build"
+manylinux-x86_64-image = "manylinux-x86_64-vcpkg:latest"
+manylinux-aarch64-image = "manylinux-aarch64-vcpkg:latest"
+
+# macOS arm64
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_arm64"
+environment = { PIP_ONLY_BINARY = "numpy", VCPKG_DEFAULT_TRIPLET = "arm64-osx-mixed", VCPKG_FEATURE_FLAGS = "-compilertracking", MACOSX_DEPLOYMENT_TARGET = "13.0" }
+
+# Windows amd64
+[[tool.cibuildwheel.overrides]]
+select = "*-win_amd64"
+environment = { PIP_ONLY_BINARY = "numpy", VCPKG_DEFAULT_TRIPLET = "x64-windows-mixed", VCPKG_FEATURE_FLAGS = "-compilertracking" }
+
+# Linux x86-64
+[[tool.cibuildwheel.overrides]]
+select = "*-manylinux_x86_64"
+environment = { PIP_ONLY_BINARY = "numpy", VCPKG_DEFAULT_TRIPLET = "x64-linux-mixed", VCPKG_FEATURE_FLAGS = "-compilertracking" }
+
+# Linux ARM64
+[[tool.cibuildwheel.overrides]]
+select = "*-manylinux_aarch64"
+environment = { PIP_ONLY_BINARY = "numpy", VCPKG_DEFAULT_TRIPLET = "arm64-linux-mixed", VCPKG_FEATURE_FLAGS = "-compilertracking" }

@@ -92,7 +92,7 @@ if (UNIX AND BUILD_CPP_LIB)
     # Write config-version
     write_basic_package_version_file(
             ${PROJECT_NAME}-config-version.cmake
-            VERSION ${PROJECT_VERSION}
+            VERSION ${PACKAGE_VERSION}
             COMPATIBILITY AnyNewerVersion)
 
     # Configure installable cmake config

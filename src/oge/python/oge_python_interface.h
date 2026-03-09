@@ -6,6 +6,7 @@
 #define ORBITALGAMEENV_OGE_PYTHON_INTERFACE_H
 
 #include <optional>
+#include <sstream>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -13,15 +14,18 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/filesystem.h>
+#include <nanobind/eigen/dense.h>
 
 #include "oge/oge_interface.h"
+#include "version.h"
 
 #ifdef BUILD_VECTOR_LIB
-    #include "oge_python_interface.h"
+#include "oge_vector_python_interface.h"
 #endif
 
 namespace nb = nanobind;
-void init_vector_module(nb::module_ &m);
+using namespace nb::literals;
+void init_vector_module(nb::module_& m);
 
 namespace oge
 {
@@ -30,21 +34,48 @@ namespace oge
     public:
         using OGEInterface::OGEInterface;
 
-        void getRewards(const std::vector<Eigen::Vector3d>& actions, std::vector<double>& rewards) const;
-        void getObservations(std::vector<Eigen::VectorXd>& observations) const;
+        nb::ndarray<nb::numpy, double> getRewards(nb::ndarray<nb::numpy, const double> actions) const;
+        nb::ndarray<nb::numpy, double> getObservations() const;
         bool getTerminal() const;
         bool getTruncated() const;
-        void act(std::vector<Eigen::Vector3d>& actions);
+        void act(nb::ndarray<nb::numpy, double> actions);
         void reset();
-
-        nb::ndarray<nb::numpy, double> getRewards(nb::ndarray<nb::numpy, double> actions);
-        nb::ndarray<nb::numpy, double> getObservations();
     };
 }
 
 NB_MODULE(_oge_py, m)
 {
-    m.attr("__version__" = );
+    m.attr("__version__") = OGE_VERSION;
+
+    nb::class_<oge::SatState>(m, "SatState")
+        .def(nb::init<>())
+        .def_rw("r_j2000", &oge::SatState::r_j2000)
+        .def_rw("v_j2000", &oge::SatState::v_j2000)
+        .def_rw("dv_remain", &oge::SatState::dv_remain)
+        .def_rw("is_alive", &oge::SatState::is_alive)
+        .def("__repr__", [](const oge::SatState& s)
+        {
+            std::ostringstream oss;
+            oss << s;
+            return oss.str();
+        });
+
+    nb::class_<oge::OGESettings>(m, "OGESettings")
+        .def(nb::init<>())
+        .def("validate", &oge::OGESettings::validate);
+
+    nb::class_<oge::OGEPythonInterface>(m, "OGEInterface")
+        .def(nb::init<>())
+        .def("get_rewards", &oge::OGEPythonInterface::getRewards)
+        .def("get_observations", &oge::OGEPythonInterface::getObservations)
+        .def("get_terminal", &oge::OGEPythonInterface::getTerminal)
+        .def("get_truncated", &oge::OGEPythonInterface::getTruncated)
+        .def("act", &oge::OGEPythonInterface::act)
+        .def("reset", &oge::OGEPythonInterface::reset);
+
+#ifdef BUILD_VECTOR_LIB
+    init_vector_module(m);
+#endif
 }
 
 #endif //ORBITALGAMEENV_OGE_PYTHON_INTERFACE_H

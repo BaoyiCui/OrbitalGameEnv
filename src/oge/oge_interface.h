@@ -16,7 +16,7 @@ namespace oge
     {
     public:
         OGEInterface();
-        ~OGEInterface();
+        ~OGEInterface() = default;
 
         void getRewards(const std::vector<Eigen::Vector3d>& actions, std::vector<double>& rewards) const;
         void getObservations(std::vector<Eigen::VectorXd>& observations) const;
