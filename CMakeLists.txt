@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(OrbitalGameEnv LANGUAGES CXX)
+project(OrbitalGameEnv VERSION 0.1.0 LANGUAGES CXX)
 
 # Build the C++ shared library
 option(BUILD_CPP_LIB "Build C++ Interface" ON)
@@ -32,7 +32,7 @@ endif ()
 
 if (DEFINED CMAKE_TOOLCHAIN_FILE)
     message(STATUS "Successfully configured vcpkg: ${CMAKE_TOOLCHAIN_FILE}")
-else()
+else ()
     message(WARNING "vcpkg not found!")
 endif ()
 

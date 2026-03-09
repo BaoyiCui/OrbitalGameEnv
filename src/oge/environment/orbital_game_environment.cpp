@@ -49,7 +49,6 @@ namespace oge
         {
             agent_ids.push_back("p_" + std::to_string(i));
         }
-        // TODO: initialize agents_states with initial orbital elements from settings
     }
 
     bool OrbitalGameEnvironment::isTerminal() const
@@ -164,11 +163,6 @@ namespace oge
 
     void OrbitalGameEnvironment::reset()
     {
-        // TODO: reset current_time to 0
-        // TODO: re-seed _rng with settings.random_seed
-        // TODO: randomize initial orbital elements around base COE from settings
-        // TODO: convert COE to RV and populate agents_states
-        // TODO: reset dv_remain for all agents
         current_time = 0.0;
         // initialize evader's state
         Eigen::Matrix<double, 6, 1> coe_e;

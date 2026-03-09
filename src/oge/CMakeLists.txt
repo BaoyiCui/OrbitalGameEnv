@@ -38,6 +38,8 @@ target_link_libraries(oge PRIVATE
         Eigen3::Eigen
 )
 
+configure_file("version.h.in" "version.h")
+
 # Add submodules
 add_subdirectory(common)
 add_subdirectory(environment)
@@ -46,11 +48,62 @@ add_subdirectory(environment)
 if (BUILD_CPP_LIB OR BUILD_PYTHON_LIB)
     add_library(oge-lib oge_interface.cpp)
     set_target_properties(oge-lib PROPERTIES OUTPUT_NAME oge)
-    target_link_libraries(oge-lib PUBLIC oge)
+    target_link_libraries(oge-lib PUBLIC oge Eigen3::Eigen)
 endif ()
 
 # Python Library
 if (BUILD_PYTHON_LIB)
     add_subdirectory(python)
+endif ()
+
+# Install cpp-lib and CMake config & pkg-config
+if (UNIX AND BUILD_CPP_LIB)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS oge oge-lib
+            EXPORT oge-export
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    # Install Header files
+    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}
+            FILES_MATCHING
+            REGEX "\.h((pp)?|(xx?))$"
+            REGEX "os_dependent\/.*(Win32)\.(h|h(xx)?|h(pp)?|c(xx)?|c(pp)?)$" EXCLUDE
+    )
+
+    # Install configured version file
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/version.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}
+    )
+
+    # Export cmake targets
+    install(EXPORT oge-export
+            FILE ${PROJECT_NAME}-targets.cmake
+            NAMESPACE ${PROJECT_NAME}::
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
+    )
+
+    # Write config-version
+    write_basic_package_version_file(
+            ${PROJECT_NAME}-config-version.cmake
+            VERSION ${PROJECT_VERSION}
+            COMPATIBILITY AnyNewerVersion)
+
+    # Configure installable cmake config
+    configure_package_config_file(
+            ${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}-config.cmake.in
+            ${PROJECT_NAME}-config.cmake
+            INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+
+    # Install config-version and config
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
+            "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 endif ()
 
