@@ -5,8 +5,6 @@
 #ifndef ORBITALGAMEENV_SETTINGS_H
 #define ORBITALGAMEENV_SETTINGS_H
 
-#include <stdexcept>
-
 namespace oge
 {
     struct OGESettings
@@ -16,20 +14,32 @@ namespace oge
         int num_pursuers;
         int num_evaders = 1;
 
-        // initial conditions
+        /* initial conditions begin */
         double sma_base; // base semi-major axis (km)
         double ecc_base; // base eccentricity
         double incl_base; // base inclination (rad)
         double RA_base; // base right ascension of the ascending node (rad)
         double w_base; // base argument of perigee (rad)
         double TA_base; // base true anomaly (rad)
+        /* initial conditions end */
 
+        /* simulation settings begin */
+        double dv_init_p;
+        double dv_init_e;
         double dv_max_per_step_p;
         double dv_max_per_step_e;
         double capture_distance;
         double timestep;
         double terminal_time;
+        /* simulation settings end */
 
+        /* random initialization settings begin */
+        double sma_perturb_max;
+        double dist_init_offset_max;
+        double dist_init_offset_min;
+        /* random initialization settings end */
+
+        /* reward settings begin */
         double reward_time_weight;
         double reward_formation_weight;
         double reward_fuel_weight;
@@ -44,6 +54,7 @@ namespace oge
 
         // phase dist reward
         double phase_dist_transition_dist;
+        /* reward settings end */
 
         void validate() const;
     };

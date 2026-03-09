@@ -23,16 +23,13 @@ namespace oge
         /** Reset the environment to its start state. */
         void reset();
 
-        void act(
-            std::vector<Eigen::Vector3d>& agents_actions,
-            std::vector<double>& agents_rewards
-        );
+        void act(std::vector<Eigen::Vector3d>& agents_actions);
 
         bool isTerminal() const;
 
         bool isTruncated() const;
 
-        void getObservations(std::vector<Eigen::VectorXd>& observations);
+        void getObservations(std::vector<Eigen::VectorXd>& observations) const;
         void getRewards(const std::vector<Eigen::Vector3d>& agent_actions, std::vector<double>& rewards) const;
 
         /** Returns the observation vector size for agent at index agent_idx. */
@@ -52,7 +49,7 @@ namespace oge
         double getFormationReward() const;
         double getDistanceReward(int p) const;
         double getCaptureReward(int p) const;
-        double getFuelReward(int p, const std::vector<Eigen::Vector3d>& actions) const;
+        double getFuelReward(const Eigen::Vector3d& action) const;
         double getTimeReward() const;
 
     private:
@@ -75,6 +72,10 @@ namespace oge
 
         // random generator
         std::mt19937 _rng;
+        std::uniform_real_distribution<double> sma_perturb_distrib;
+        std::uniform_real_distribution<double> true_anomaly_distrib;
+        std::uniform_real_distribution<double> dist_init_offset_distrib;
+        std::uniform_int_distribution<int> TA_lead_distrib;
     };
 }
 

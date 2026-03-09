@@ -21,9 +21,26 @@ namespace oge
         current_time(0.0)
     {
         settings.validate();
+        /* Initialize random generator */
+        _rng.seed(settings.random_seed);
+        sma_perturb_distrib = std::uniform_real_distribution<double>(
+            -settings.sma_perturb_max,
+            settings.sma_perturb_max
+        );
+        true_anomaly_distrib = std::uniform_real_distribution<double>(
+            0.0,
+            2 * M_PI
+        );
+        dist_init_offset_distrib = std::uniform_real_distribution<double>(
+            settings.capture_distance + settings.dist_init_offset_min,
+            settings.capture_distance + settings.dist_init_offset_max
+        );
+        TA_lead_distrib = std::uniform_int_distribution<int>(0, 1);
+
+        // initialize agent
         agent_ids.reserve(num_agents);
         agents_states.reserve(num_agents);
-        // initialize agent_ids
+
         for (int i = 0; i < num_evaders; ++i)
         {
             agent_ids.push_back("e_" + std::to_string(i));
@@ -32,7 +49,7 @@ namespace oge
         {
             agent_ids.push_back("p_" + std::to_string(i));
         }
-        // initialize agents_
+        // TODO: initialize agents_states with initial orbital elements from settings
     }
 
     bool OrbitalGameEnvironment::isTerminal() const
@@ -73,7 +90,7 @@ namespace oge
         return 3 * (num_agents + 1);
     }
 
-    void OrbitalGameEnvironment::getObservations(std::vector<Eigen::VectorXd>& observations)
+    void OrbitalGameEnvironment::getObservations(std::vector<Eigen::VectorXd>& observations) const
     {
         observations.resize(num_agents);
         for (int e = 0; e < num_evaders; ++e)
@@ -131,15 +148,62 @@ namespace oge
     void OrbitalGameEnvironment::getRewards(const std::vector<Eigen::Vector3d>& agent_actions,
                                             std::vector<double>& rewards) const
     {
-        rewards.resize(num_agents);
+        rewards.assign(num_agents, 0.0);
+        // TODO: evader's reward
 
-        std::vector<double> dists_to_evader;
-        dists_to_evader.reserve(num_pursuers);
+        for (int p = num_evaders; p < num_agents; ++p)
+        {
+            rewards[p] += getFormationReward();
+            rewards[p] += getDistanceReward(p);
+            rewards[p] += getCaptureReward(p);
+            rewards[p] += getFuelReward(agent_actions[p]);
+            rewards[p] += getTimeReward();
+        }
     }
 
 
     void OrbitalGameEnvironment::reset()
     {
+        // TODO: reset current_time to 0
+        // TODO: re-seed _rng with settings.random_seed
+        // TODO: randomize initial orbital elements around base COE from settings
+        // TODO: convert COE to RV and populate agents_states
+        // TODO: reset dv_remain for all agents
+        current_time = 0.0;
+        // initialize evader's state
+        Eigen::Matrix<double, 6, 1> coe_e;
+        coe_e << settings.sma_base, settings.ecc_base, settings.incl_base,
+            settings.RA_base, settings.w_base, settings.TA_base;
+        coe_e[0] += sma_perturb_distrib(_rng);
+        coe_e[5] = true_anomaly_distrib(_rng);
+        coe2rv(coe_e, agents_states[0].r_j2000, agents_states[0].v_j2000);
+
+        // initialize pursuer's state
+        for (int p = num_evaders; p < num_agents; ++p)
+        {
+            Eigen::Matrix<double, 6, 1> coe_p;
+            coe_p << settings.sma_base, settings.ecc_base, settings.incl_base,
+                settings.RA_base, settings.w_base, settings.TA_base;
+            double TA_lead = TA_lead_distrib(_rng) == 0 ? -1.0 : 1.0;
+            double distance_offset = dist_init_offset_distrib(_rng);
+            coe_p[0] += sma_perturb_distrib(_rng);
+            coe_p[5] += TA_lead * distance_offset / coe_p[0];
+            coe2rv(coe_p, agents_states[p].r_j2000, agents_states[p].v_j2000);
+        }
+
+        // make every agent alive and reset fuel
+        for (int i = 0; i < num_agents; ++i)
+        {
+            agents_states[i].is_alive = true;
+            if (i < num_evaders)
+            {
+                agents_states[i].dv_remain = settings.dv_init_e;
+            }
+            else
+            {
+                agents_states[i].dv_remain = settings.dv_init_p;
+            }
+        }
     }
 
     void OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
@@ -244,7 +308,6 @@ namespace oge
 
     double OrbitalGameEnvironment::getDistanceReward(int p) const
     {
-        // TODO
         double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
 
         Eigen::Matrix<double, 6, 1> coe_p, coe_e;
@@ -263,28 +326,29 @@ namespace oge
         }
         else
         {
-            // python code:
-            // r_drift = np.clip(np.abs(sma_diff_ratio) * 1000.0, 0.0, 2.0)
-            // r_angle = (np.pi - np.abs(delta_theta)) / np.pi
-            // R_Far = 1.0 * r_drift + 0.5 * r_angle
             double r_drift = std::clamp(std::abs(sma_diff_ratio) * 1000.0, 0.0, 2.0);
             double r_angle = (M_PI - std::abs(TA_delta)) / M_PI;
             reward_far = 1.0 * r_drift + 0.5 * r_angle;
         }
 
-        // TODO: Near field
         double dist_normalized = distance / settings.capture_distance;
+        double reward_dist = 0.0;
         if (dist_normalized <= 1.0)
         {
+            reward_dist = 1.0 + 0.1 * (1.0 - dist_normalized);
         }
         else if (dist_normalized <= 2.0)
         {
+            reward_dist = 2.0 - dist_normalized;
         }
         else
         {
+            reward_dist = std::clamp(2.0 - dist_normalized, -1.0, 0.0);
         }
-        double reward_energy = ;
-        reward_near =;
+
+        // TODO: 下面这一段的参数改写到 settings 中
+        double reward_energy = -std::abs(sma_diff_ratio) * 2000.0;
+        reward_near = 1.0 * reward_dist + 0.05 * reward_energy;
 
         double alpha = std::abs(sma_diff_ratio) * 2000.0;
         double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
@@ -318,9 +382,9 @@ namespace oge
         return 0.0; // no capture
     }
 
-    double OrbitalGameEnvironment::getFuelReward(int p, const std::vector<Eigen::Vector3d>& actions) const
+    double OrbitalGameEnvironment::getFuelReward(const Eigen::Vector3d& action) const
     {
-        return settings.reward_fuel_weight * actions[p - num_evaders].norm();;
+        return settings.reward_fuel_weight * action.norm();;
     }
 
     double OrbitalGameEnvironment::getTimeReward() const
@@ -328,9 +392,7 @@ namespace oge
         return settings.reward_time_weight;
     }
 
-    void OrbitalGameEnvironment::act(
-        std::vector<Eigen::Vector3d>& agents_actions,
-        std::vector<double>& agents_rewards)
+    void OrbitalGameEnvironment::act(std::vector<Eigen::Vector3d>& agents_actions)
     {
         if (agents_actions.size() != num_agents)
         {
@@ -338,14 +400,5 @@ namespace oge
         }
         processDynamics(agents_actions);
         checkAlive();
-
-        // TODO: get observations
-
-        // TODO: get rewards
-        getRewards(agents_actions, agents_rewards);
-
-        // TODO: get truncations
-
-        // TODO: get terminations
     }
 }

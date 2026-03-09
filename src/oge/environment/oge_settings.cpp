@@ -4,6 +4,9 @@
 
 #include "oge_settings.h"
 
+#include <cmath>
+#include <stdexcept>
+
 
 namespace oge
 {
@@ -18,11 +21,23 @@ namespace oge
             throw std::invalid_argument("OGESettings: sma_base must be > 0");
         if (ecc_base < 0.0 || ecc_base >= 1.0)
             throw std::invalid_argument("OGESettings: ecc_base must be in [0, 1)");
+        if (incl_base < 0.0 || incl_base > M_PI)
+            throw std::invalid_argument("OGESettings: incl_base must be in [0, pi] rad");
+        if (RA_base < 0.0 || RA_base > 2.0 * M_PI)
+            throw std::invalid_argument("OGESettings: RA_base must be in [0, 2*pi] rad");
+        if (w_base < 0.0 || w_base > 2.0 * M_PI)
+            throw std::invalid_argument("OGESettings: w_base must be in [0, 2*pi] rad");
+        if (TA_base < 0.0 || TA_base > 2.0 * M_PI)
+            throw std::invalid_argument("OGESettings: TA_base must be in [0, 2*pi] rad");
 
-        if (dv_max_per_step_p < 0.0)
-            throw std::invalid_argument("OGESettings: dv_max_per_step_p must be >= 0");
-        if (dv_max_per_step_e < 0.0)
-            throw std::invalid_argument("OGESettings: dv_max_per_step_e must be >= 0");
+        if (dv_init_p <= 0.0)
+            throw std::invalid_argument("OGESettings: dv_init_p must be > 0");
+        if (dv_init_e <= 0.0)
+            throw std::invalid_argument("OGESettings: dv_init_e must be > 0");
+        if (dv_max_per_step_p <= 0.0)
+            throw std::invalid_argument("OGESettings: dv_max_per_step_p must be > 0");
+        if (dv_max_per_step_e <= 0.0)
+            throw std::invalid_argument("OGESettings: dv_max_per_step_e must be > 0");
         if (capture_distance <= 0.0)
             throw std::invalid_argument("OGESettings: capture_distance must be > 0");
         if (timestep <= 0.0)
@@ -31,6 +46,18 @@ namespace oge
             throw std::invalid_argument("OGESettings: terminal_time must be > 0");
         if (terminal_time < timestep)
             throw std::invalid_argument("OGESettings: terminal_time must be >= timestep");
+
+        if (sma_perturb_max <= 0.0)
+            throw std::invalid_argument("OGESettings: sma_perturb_max must be > 0");
+        if (sma_perturb_max >= sma_base)
+            throw std::invalid_argument("OGESettings: sma_perturb_max must be < sma_base");
+        if (dist_init_offset_min < 0.0)
+            throw std::invalid_argument("OGESettings: dist_init_offset_min must be >= 0");
+        if (dist_init_offset_min <= 0.0)
+            throw std::invalid_argument("OGESettings: dist_init_offset_min must be > 0");
+        if (dist_init_offset_min >= dist_init_offset_max)
+            throw std::invalid_argument("OGESettings: dist_init_offset_min must be < dist_init_offset_max");
+
 
         if (reward_time_weight < 0.0)
             throw std::invalid_argument("OGESettings: reward_time_weight must be >= 0");
@@ -51,5 +78,7 @@ namespace oge
 
         if (advantage_reward_horizon <= 0)
             throw std::invalid_argument("OGESettings: advantage_reward_horizon must be > 0");
+        if (phase_dist_transition_dist <= 0.0)
+            throw std::invalid_argument("OGESettings: phase_dist_transition_dist must be > 0");
     }
 }
