@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <sstream>
 
 namespace oge
 {
@@ -16,6 +17,8 @@ namespace oge
     public:
         OGESettings();
         virtual ~OGESettings();
+        OGESettings(const OGESettings&) = delete;
+        OGESettings& operator =(const OGESettings&) = delete;
 
         void validate() const;
 
@@ -88,9 +91,6 @@ namespace oge
         void setString(const std::string& key, const std::string& value);
 
     private:
-        OGESettings(const OGESettings&);
-        OGESettings& operator =(const OGESettings&);
-
         // Trim leading and following witespace from a string
         static std::string trim(std::string& str)
         {
@@ -98,6 +98,27 @@ namespace oge
             return (first == std::string::npos)
                        ? std::string()
                        : str.substr(first, str.find_last_not_of(' ') - first + 1);
+        }
+
+        static std::string toString(int value)
+        {
+            std::ostringstream os;
+            os << value;
+            return os.str();
+        }
+
+        static std::string toString(float value)
+        {
+            std::ostringstream os;
+            os << value;
+            return os.str();
+        }
+
+        static std::string toString(double value)
+        {
+            std::ostringstream os;
+            os << value;
+            return os.str();
         }
 
     protected:
@@ -138,7 +159,9 @@ namespace oge
         std::map<std::string, float> floatSettings;
         std::map<std::string, std::string> stringSettings;
         template <typename ValueType>
-        void verifyVariableExistence(std::map<std::string, ValueType> dict, std::string key);
+        void verifyVariableExistence(
+            const std::map<std::string, ValueType>& dict,
+            const std::string& key) const;
 
         SettingsArray myInternalSettings;
         SettingsArray myExternalSettings;
