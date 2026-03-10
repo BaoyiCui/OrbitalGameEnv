@@ -35,6 +35,7 @@ namespace oge::vector
         )
         {
 
+
         }
 
         void set_seed(const int seed);
@@ -42,8 +43,9 @@ namespace oge::vector
         void reset();
 
     private:
-        int env_id_;
-        std::unique_ptr<OGEInterface> env_;
+        int env_id_;    // Unique ID for this environment
+        std::unique_ptr<OGEInterface> env_; // OGE interface
+
 
     };
 }

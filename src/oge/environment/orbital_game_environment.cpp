@@ -223,6 +223,7 @@ namespace oge
 
     void OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
     {
+        // TODO: 目前的输入动作是 J2000坐标系下的速度增量，后续可以修改成LVLH坐标系下的速度增量
         if (actions.size() != static_cast<size_t>(num_agents))
         {
             throw std::invalid_argument("actions.size() != num_agents");

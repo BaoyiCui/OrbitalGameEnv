@@ -11,6 +11,7 @@
 #include "oge/vector/async_vectorizer.h"
 #include "oge/vector/preprocessed_env.h"
 #include "oge/vector/utils.h"
+#include "oge/common/log.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/vector.h>
