@@ -36,10 +36,7 @@ namespace oge
 
         nb::ndarray<nb::numpy, double> getRewards(nb::ndarray<nb::numpy, const double> actions) const;
         nb::ndarray<nb::numpy, double> getObservations() const;
-        bool getTerminal() const;
-        bool getTruncated() const;
         void act(nb::ndarray<nb::numpy, double> actions);
-        void reset();
     };
 }
 
@@ -62,16 +59,36 @@ NB_MODULE(_oge_py, m)
 
     nb::class_<oge::OGESettings>(m, "OGESettings")
         .def(nb::init<>())
-        .def("validate", &oge::OGESettings::validate);
+        .def("validate", &oge::OGESettings::validate)
+        .def("set_int", &oge::OGESettings::setInt)
+        .def("set_float", &oge::OGESettings::setFloat)
+        .def("set_bool", &oge::OGESettings::setBool)
+        .def("set_string", &oge::OGESettings::setString)
+        .def("get_int", &oge::OGESettings::getInt)
+        .def("get_float", &oge::OGESettings::getFloat)
+        .def("get_bool", &oge::OGESettings::getBool)
+        .def("get_string", &oge::OGESettings::getString);
 
     nb::class_<oge::OGEPythonInterface>(m, "OGEInterface")
         .def(nb::init<>())
+        .def_prop_ro("settings", [](oge::OGEPythonInterface& self) -> oge::OGESettings&
+        {
+            return *self.settings;
+        }, nb::rv_policy::reference_internal)
+        .def("init", &oge::OGEPythonInterface::init)
         .def("get_rewards", &oge::OGEPythonInterface::getRewards)
         .def("get_observations", &oge::OGEPythonInterface::getObservations)
-        .def("get_terminal", &oge::OGEPythonInterface::getTerminal)
-        .def("get_truncated", &oge::OGEPythonInterface::getTruncated)
         .def("act", &oge::OGEPythonInterface::act)
-        .def("reset", &oge::OGEPythonInterface::reset);
+        .def("reset", &oge::OGEPythonInterface::reset)
+        .def("init", &oge::OGEPythonInterface::init)
+        .def("setInt", &oge::OGEPythonInterface::setInt)
+        .def("setFloat", &oge::OGEPythonInterface::setFloat)
+        .def("setBool", &oge::OGEPythonInterface::setBool)
+        .def("setString", &oge::OGEPythonInterface::setString)
+        .def("getInt", &oge::OGEPythonInterface::getInt)
+        .def("getFloat", &oge::OGEPythonInterface::getFloat)
+        .def("getBool", &oge::OGEPythonInterface::getBool)
+        .def("getString", &oge::OGEPythonInterface::getString);
 
 #ifdef BUILD_VECTOR_LIB
     init_vector_module(m);

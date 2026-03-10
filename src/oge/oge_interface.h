@@ -18,12 +18,24 @@ namespace oge
         OGEInterface();
         ~OGEInterface() = default;
 
+        /** Validate settings and construct the environment. Must be called before any other method. */
+        void init();
+
         void getRewards(const std::vector<Eigen::Vector3d>& actions, std::vector<double>& rewards) const;
         void getObservations(std::vector<Eigen::VectorXd>& observations) const;
         bool getTerminal() const;
         bool getTruncated() const;
         void act(std::vector<Eigen::Vector3d>& actions);
         void reset();
+
+        int getInt(const std::string& key, bool strict = false) const;
+        float getFloat(const std::string& key, bool strict = false) const;
+        bool getBool(const std::string& key, bool strict = false) const;
+        const std::string& getString(const std::string& key, bool strict = false) const;
+        void setInt(const std::string& key, const int value);
+        void setFloat(const std::string& key, const float value);
+        void setBool(const std::string& key, const bool value);
+        void setString(const std::string& key, const std::string& value);
 
     public:
         std::unique_ptr<oge::OrbitalGameEnvironment> environment;

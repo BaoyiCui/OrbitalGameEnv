@@ -26,12 +26,17 @@ It can be downloaded from https://aka.ms/vs/16/release/vc_redist.x64.exe."""
     # This way we guarantee we load OUR DLLs.
     os.add_dll_directory(packagedir)
 
-__version__= metadata.version(__package__)
+__version__ = metadata.version(__package__)
 
-from oge_py._oge_py import OGEState
+from oge_py._oge_py import SatState, OGESettings, OGEInterface
 
-__all__ = ["OGEState"]
+__all__ = ["SatState", "OGESettings", "OGEInterface"]
 
 try:
     # TODO
-    from oge_py.env import
+    from oge_py.env import OGEEnv
+
+    __all__ += ["OGEEnv"]
+
+except ImportError:
+    pass

@@ -1,14 +1,6 @@
-import os
-from unittest.mock import patch
+import numpy as np
 
-import oge_py
-import gymnasium as gym
-import pytest
 
-@pytest.fixture
-def oge():
-    """Gets an OGE interface."""
-    yield oge_py.OGEInterface()
-
-# @pytest.fixture
-# def
+def make_zero_actions(num_agents: int, *, dtype=np.float64) -> np.ndarray:
+    """Build a valid action tensor with shape (num_agents, 3)."""
+    return np.zeros((num_agents, 3), dtype=dtype)

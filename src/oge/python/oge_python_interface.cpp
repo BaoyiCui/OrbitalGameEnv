@@ -52,16 +52,6 @@ namespace oge
         return {data, 1, shape, owner};
     }
 
-    bool OGEPythonInterface::getTerminal() const
-    {
-        return OGEInterface::getTerminal();
-    }
-
-    bool OGEPythonInterface::getTruncated() const
-    {
-        return OGEInterface::getTruncated();
-    }
-
     void OGEPythonInterface::act(nb::ndarray<nb::numpy, double> actions)
     {
         if (actions.ndim() != 2 || actions.shape(1) != 3)
@@ -73,10 +63,5 @@ namespace oge
         for (int i = 0; i < n; i++)
             acts[i] = Eigen::Vector3d(view(i, 0), view(i, 1), view(i, 2));
         OGEInterface::act(acts);
-    }
-
-    void OGEPythonInterface::reset()
-    {
-        OGEInterface::reset();
     }
 }
