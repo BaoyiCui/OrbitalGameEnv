@@ -41,12 +41,12 @@ namespace oge
         floatSettings["dist_init_offset_min"] = 1.0f;
         floatSettings["dist_init_offset_max"] = 20.0f;
 
-        floatSettings["reward_time_weight"] = 0.01;
+        floatSettings["reward_time_weight"] = -0.01; // panalty
         floatSettings["reward_formation_weight"] = 0.04;
-        floatSettings["reward_fuel_weight"] = 0.05;
+        floatSettings["reward_fuel_weight"] = -0.05; // panalty
         floatSettings["reward_capture_weight"] = 10.0;
-        floatSettings["reward_timeout_weight"] = -2.0;
-        floatSettings["reward_fuelout_weight"] = -1.0;
+        floatSettings["reward_timeout_weight"] = -2.0; // panalty
+        floatSettings["reward_fuelout_weight"] = -1.0; //panalty
         floatSettings["reward_phase_dist_weight"] = 1.0;
         floatSettings["phase_dist_transition_dist"] = 60.0;
 
@@ -151,18 +151,18 @@ namespace oge
         if (dist_init_offset_min >= dist_init_offset_max)
             throw std::invalid_argument("OGESettings: dist_init_offset_min must be < dist_init_offset_max");
 
-        if (getFloat("reward_time_weight") < 0.0)
-            throw std::invalid_argument("OGESettings: reward_time_weight must be >= 0");
+        if (getFloat("reward_time_weight") > 0.0)
+            throw std::invalid_argument("OGESettings: reward_time_weight (penalty) must be <= 0");
         if (getFloat("reward_formation_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_formation_weight must be >= 0");
-        if (getFloat("reward_fuel_weight") < 0.0)
-            throw std::invalid_argument("OGESettings: reward_fuel_weight must be >= 0");
+        if (getFloat("reward_fuel_weight") > 0.0)
+            throw std::invalid_argument("OGESettings: reward_fuel_weight (penalty) must be <= 0");
         if (getFloat("reward_capture_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_capture_weight must be >= 0");
-        if (getFloat("reward_timeout_weight") < 0.0)
-            throw std::invalid_argument("OGESettings: reward_timeout_weight must be >= 0");
-        if (getFloat("reward_fuelout_weight") < 0.0)
-            throw std::invalid_argument("OGESettings: reward_fuelout_weight must be >= 0");
+        if (getFloat("reward_timeout_weight") > 0.0)
+            throw std::invalid_argument("OGESettings: reward_timeout_weight (penalty) must be <= 0");
+        if (getFloat("reward_fuelout_weight") > 0.0)
+            throw std::invalid_argument("OGESettings: reward_fuelout_weight (penalty) must be <= 0");
         if (getFloat("reward_advantage_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_advantage_weight must be >= 0");
         if (getFloat("reward_phase_dist_weight") < 0.0)
@@ -265,7 +265,7 @@ namespace oge
                 }
                 else
                 {
-                    return -1;
+                    throw std::out_of_range("OGESettings: unknown key '" + key + "'");
                 }
             }
         }
@@ -298,7 +298,7 @@ namespace oge
                 }
                 else
                 {
-                    return -1.0;
+                    throw std::out_of_range("OGESettings: unknown key '" + key + "'");
                 }
             }
         }
@@ -339,7 +339,7 @@ namespace oge
             }
             else
             {
-                return false;
+                throw std::out_of_range("OGESettings: unknown key '" + key + "'");
             }
         }
     }
@@ -367,8 +367,7 @@ namespace oge
             }
             else
             {
-                static std::string EmptyString("");
-                return EmptyString;
+                throw std::out_of_range("OGESettings: unknown key '" + key + "'");
             }
         }
     }

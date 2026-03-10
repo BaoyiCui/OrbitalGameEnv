@@ -26,11 +26,15 @@ def test_set_get_float_roundtrip(oge):
     assert oge.getFloat("terminal_time") == pytest.approx(600.0)
 
 
-def test_get_unknown_key_defaults(oge):
-    assert oge.getInt("__missing_int_key__") == -1
-    assert oge.getFloat("__missing_float_key__") == pytest.approx(-1.0)
-    assert oge.getBool("__missing_bool_key__") is False
-    assert oge.getString("__missing_str_key__") == ""
+def test_get_unknown_key_raises(oge):
+    with pytest.raises(IndexError):
+        oge.getInt("__missing_int_key__")
+    with pytest.raises(IndexError):
+        oge.getFloat("__missing_float_key__")
+    with pytest.raises(IndexError):
+        oge.getBool("__missing_bool_key__")
+    with pytest.raises(IndexError):
+        oge.getString("__missing_str_key__")
 
 
 def test_act_rejects_invalid_action_shape(oge):

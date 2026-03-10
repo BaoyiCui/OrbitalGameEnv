@@ -64,10 +64,10 @@ NB_MODULE(_oge_py, m)
         .def("set_float", &oge::OGESettings::setFloat)
         .def("set_bool", &oge::OGESettings::setBool)
         .def("set_string", &oge::OGESettings::setString)
-        .def("get_int", &oge::OGESettings::getInt)
-        .def("get_float", &oge::OGESettings::getFloat)
-        .def("get_bool", &oge::OGESettings::getBool)
-        .def("get_string", &oge::OGESettings::getString);
+        .def("get_int", &oge::OGESettings::getInt, "key"_a, "strict"_a = false)
+        .def("get_float", &oge::OGESettings::getFloat, "key"_a, "strict"_a = false)
+        .def("get_bool", &oge::OGESettings::getBool, "key"_a, "strict"_a = false)
+        .def("get_string", &oge::OGESettings::getString, "key"_a, "strict"_a = false);
 
     nb::class_<oge::OGEPythonInterface>(m, "OGEInterface")
         .def(nb::init<>())
@@ -85,10 +85,10 @@ NB_MODULE(_oge_py, m)
         .def("setFloat", &oge::OGEPythonInterface::setFloat)
         .def("setBool", &oge::OGEPythonInterface::setBool)
         .def("setString", &oge::OGEPythonInterface::setString)
-        .def("getInt", &oge::OGEPythonInterface::getInt)
-        .def("getFloat", &oge::OGEPythonInterface::getFloat)
-        .def("getBool", &oge::OGEPythonInterface::getBool)
-        .def("getString", &oge::OGEPythonInterface::getString);
+        .def("getInt", &oge::OGEPythonInterface::getInt, "key"_a, "strict"_a = false)
+        .def("getFloat", &oge::OGEPythonInterface::getFloat, "key"_a, "strict"_a = false)
+        .def("getBool", &oge::OGEPythonInterface::getBool, "key"_a, "strict"_a = false)
+        .def("getString", &oge::OGEPythonInterface::getString, "key"_a, "strict"_a = false);
 
 #ifdef BUILD_VECTOR_LIB
     init_vector_module(m);

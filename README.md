@@ -1,6 +1,6 @@
 # OrbitalGameEnv
 
-## 安装依赖
+## 1. 开发环境配置
 ### 1.1 安装 vcpkg
 ```bash
 git clone https://www.github.com/microsoft/vcpkg
@@ -27,4 +27,18 @@ pip install -r requirements.txt
 在右侧选中一个配置文件（一般是 `Debug` 或者 `Release`），在 `CMake options` 中添加如下内容
 ```bash
 --toolchain <path-to-vcpkg>/scripts/buildsystems/vcpkg.cmake -DPython_EXECUTABLE=<path-to-python>
+```
+
+## 2. 从源码安装
+运行如下命令从源码构建并安装
+```bash
+conda create -n oge python=3.13
+conda activate oge
+pip install .
+```
+
+## 3. 测试
+确保已经安装完成，运行如下命令
+```bash
+pytest --disable-plugin-autoload tests/python -v
 ```

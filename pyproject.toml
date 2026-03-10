@@ -46,6 +46,17 @@ test = [
     "pytest>=7.0",
     "gymnasium>=1.2.0"
 ]
+# 避免 ROS2 Jazzy 的插件注册为 pytest 插件
+#[tool.pytest.ini_options]
+#addopts = """
+#  -p no:launch_testing
+#  -p no:launch-testing-ros
+#  -p no:ament-lint
+#  -p no:ament-pep257
+#  -p no:ament-xmllint
+#  -p no:ament-copyright
+#  -p no:ament-flake8
+#"""
 
 [tool.scikit-build]
 cmake.args = [
