@@ -7,33 +7,50 @@
 namespace oge
 {
     OrbitalGameEnvironment::OrbitalGameEnvironment(
-        OGESettings& settings_
+        const OGESettings& settings_
     ) :
         settings(settings_),
-        dv_max_per_step_p(settings_.dv_max_per_step_p),
-        dv_max_per_step_e(settings_.dv_max_per_step_e),
-        capture_distance(settings_.capture_distance),
-        timestep(settings_.timestep),
-        terminal_time(settings_.terminal_time),
-        num_pursuers(settings_.num_pursuers),
-        num_evaders(settings_.num_evaders),
-        num_agents(settings_.num_pursuers + settings_.num_evaders),
-        current_time(0.0)
+        random_seed(settings_.getInt("random_seed", true)),
+        num_pursuers(settings_.getInt("num_pursuers", true)),
+        num_evaders(settings_.getInt("num_evaders", true)),
+        num_agents(num_evaders + num_pursuers),
+        // simulation settings
+        dv_init_p(settings_.getFloat("dv_init_p")),
+        dv_init_e(settings_.getFloat("dv_init_e")),
+        dv_max_per_step_p(settings_.getFloat("dv_max_per_step_p")),
+        dv_max_per_step_e(settings_.getFloat("dv_max_per_step_e")),
+        capture_distance(settings_.getFloat("capture_distance")),
+        timestep(settings_.getFloat("timestep")),
+        terminal_time(settings_.getFloat("terminal_time")),
+        // random initialization settings
+        sma_perturb_max(settings_.getFloat("sma_perturb_max")),
+        dist_init_offset_max(settings_.getFloat("dist_init_offset_max")),
+        dist_init_offset_min(settings_.getFloat("dist_init_offset_min")),
+        // reward settings
+        reward_time_weight(settings_.getFloat("reward_time_weight")),
+        reward_formation_weight(settings_.getFloat("reward_formation_weight")),
+        reward_fuel_weight(settings_.getFloat("reward_fuel_weight")),
+        reward_capture_weight(settings_.getFloat("reward_capture_weight")),
+        reward_timeout_weight(settings_.getFloat("reward_timeout_weight")),
+        reward_fuelout_weight(settings_.getFloat("reward_fuelout_weight")),
+        reward_advantage_weight(settings_.getFloat("reward_advantage_weight")),
+        reward_phase_dist_weight(settings_.getFloat("reward_phase_dist_weight")),
+        phase_dist_transition_dist(settings_.getFloat("phase_dist_transition_dist"))
     {
         settings.validate();
         /* Initialize random generator */
-        _rng.seed(settings.random_seed);
+        _rng.seed(random_seed);
         sma_perturb_distrib = std::uniform_real_distribution<double>(
-            -settings.sma_perturb_max,
-            settings.sma_perturb_max
+            -sma_perturb_max,
+            sma_perturb_max
         );
         true_anomaly_distrib = std::uniform_real_distribution<double>(
             0.0,
             2 * M_PI
         );
         dist_init_offset_distrib = std::uniform_real_distribution<double>(
-            settings.capture_distance + settings.dist_init_offset_min,
-            settings.capture_distance + settings.dist_init_offset_max
+            capture_distance + dist_init_offset_min,
+            capture_distance + dist_init_offset_max
         );
         TA_lead_distrib = std::uniform_int_distribution<int>(0, 1);
 
@@ -166,9 +183,14 @@ namespace oge
     {
         current_time = 0.0;
         // initialize evader's state
-        Eigen::Matrix<double, 6, 1> coe_e;
-        coe_e << settings.sma_base, settings.ecc_base, settings.incl_base,
-            settings.RA_base, settings.w_base, settings.TA_base;
+        const Eigen::Matrix<double, 6, 1> coe_base(
+            settings.getFloat("sma_base", true),
+            settings.getFloat("ecc_base", true),
+            settings.getFloat("incl_base", true),
+            settings.getFloat("RA_base", true),
+            settings.getFloat("w_base", true),
+            settings.getFloat("TA_base", true));
+        Eigen::Matrix<double, 6, 1> coe_e = coe_base;
         coe_e[0] += sma_perturb_distrib(_rng);
         coe_e[5] = true_anomaly_distrib(_rng);
         coe2rv(coe_e, agents_states[0].r_j2000, agents_states[0].v_j2000);
@@ -176,9 +198,7 @@ namespace oge
         // initialize pursuer's state
         for (int p = num_evaders; p < num_agents; ++p)
         {
-            Eigen::Matrix<double, 6, 1> coe_p;
-            coe_p << settings.sma_base, settings.ecc_base, settings.incl_base,
-                settings.RA_base, settings.w_base, settings.TA_base;
+            Eigen::Matrix<double, 6, 1> coe_p = coe_base;
             double TA_lead = TA_lead_distrib(_rng) == 0 ? -1.0 : 1.0;
             double distance_offset = dist_init_offset_distrib(_rng);
             coe_p[0] += sma_perturb_distrib(_rng);
@@ -192,11 +212,11 @@ namespace oge
             agents_states[i].is_alive = true;
             if (i < num_evaders)
             {
-                agents_states[i].dv_remain = settings.dv_init_e;
+                agents_states[i].dv_remain = dv_init_e;
             }
             else
             {
-                agents_states[i].dv_remain = settings.dv_init_p;
+                agents_states[i].dv_remain = dv_init_p;
             }
         }
     }
@@ -296,7 +316,7 @@ namespace oge
         // reward = weight / (1 + ||sum_directions||)
         // The norm of sum_directions is 0 for perfect encirclement and up to num_pursuers
         // when all pursuers are on the same side. Dividing 1 by (1 + norm) maps this to (0, 1].
-        const double reward_formation = settings.reward_formation_weight * (1.0 / (1.0 + sum_directions.norm()));
+        const double reward_formation = reward_formation_weight * (1.0 / (1.0 + sum_directions.norm()));
 
         return reward_formation;
     }
@@ -326,7 +346,7 @@ namespace oge
             reward_far = 1.0 * r_drift + 0.5 * r_angle;
         }
 
-        double dist_normalized = distance / settings.capture_distance;
+        double dist_normalized = distance / capture_distance;
         double reward_dist = 0.0;
         if (dist_normalized <= 1.0)
         {
@@ -349,7 +369,7 @@ namespace oge
         double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
 
 
-        return settings.reward_phase_dist_weight * total_reward;
+        return reward_phase_dist_weight * total_reward;
     }
 
     double OrbitalGameEnvironment::getCaptureReward(int p) const
@@ -357,7 +377,7 @@ namespace oge
         bool captured_team = false;
         for (int i = num_evaders; i < num_agents; ++i)
         {
-            if ((agents_states[i].r_j2000 - agents_states[0].r_j2000).norm() < settings.capture_distance)
+            if ((agents_states[i].r_j2000 - agents_states[0].r_j2000).norm() < capture_distance)
             {
                 captured_team = true;
                 break;
@@ -366,12 +386,12 @@ namespace oge
 
         if (captured_team)
         {
-            if ((agents_states[p].r_j2000 - agents_states[0].r_j2000).norm() < settings.capture_distance)
+            if ((agents_states[p].r_j2000 - agents_states[0].r_j2000).norm() < capture_distance)
             {
-                return settings.reward_capture_weight; // capture bonus
+                return reward_capture_weight; // capture bonus
             }
 
-            return 0.5 * settings.reward_capture_weight; // assistant capture bonus
+            return 0.5 * reward_capture_weight; // assistant capture bonus
         }
 
         return 0.0; // no capture
@@ -379,12 +399,12 @@ namespace oge
 
     double OrbitalGameEnvironment::getFuelReward(const Eigen::Vector3d& action) const
     {
-        return settings.reward_fuel_weight * action.norm();;
+        return reward_fuel_weight * action.norm();;
     }
 
     double OrbitalGameEnvironment::getTimeReward() const
     {
-        return settings.reward_time_weight;
+        return reward_time_weight;
     }
 
     void OrbitalGameEnvironment::act(std::vector<Eigen::Vector3d>& agents_actions)

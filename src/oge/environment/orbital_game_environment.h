@@ -18,7 +18,7 @@ namespace oge
     class OrbitalGameEnvironment
     {
     public:
-        explicit OrbitalGameEnvironment(OGESettings& settings_);
+        explicit OrbitalGameEnvironment(const OGESettings& settings_);
 
         /** Reset the environment to its start state. */
         void reset();
@@ -55,16 +55,36 @@ namespace oge
     private:
         const OGESettings& settings;
 
-        // simulation settings
-        const double dv_max_per_step_p; // pursuer's max dv per step, km/s
-        const double dv_max_per_step_e; // evader's max dv per step, km/s
-        const double capture_distance; // km
-        const double timestep; // s
-        const double terminal_time; // s
-        // Agents' states
+        /** Settings cache */
+
+        const int random_seed;
         const int num_pursuers;
         const int num_evaders;
         const int num_agents;
+        // simulation settings
+        const double dv_init_p;
+        const double dv_init_e;
+        const double dv_max_per_step_p;
+        const double dv_max_per_step_e;
+        const double capture_distance;
+        const double timestep;
+        const double terminal_time;
+        // random initialization settings
+        const double sma_perturb_max;
+        const double dist_init_offset_max;
+        const double dist_init_offset_min;
+        // reward settings
+        const double reward_time_weight;
+        const double reward_formation_weight;
+        const double reward_fuel_weight;
+        const double reward_capture_weight;
+        const double reward_timeout_weight;
+        const double reward_fuelout_weight;
+        const double reward_advantage_weight;
+        const double reward_phase_dist_weight;
+        const double phase_dist_transition_dist;
+        /** Settings cache end */
+
         std::vector<std::string> agent_ids;
         std::vector<SatState> agents_states; // the first num_evaders elements of agents_states are evaders' states
 
