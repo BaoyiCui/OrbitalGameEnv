@@ -107,6 +107,11 @@ namespace oge
         return 3 * (num_agents + 1);
     }
 
+    double OrbitalGameEnvironment::getCurrentTime() const
+    {
+        return current_time;
+    }
+
     void OrbitalGameEnvironment::getObservations(std::vector<Eigen::VectorXd>& observations) const
     {
         observations.resize(num_agents);
@@ -221,7 +226,7 @@ namespace oge
         }
     }
 
-    void OrbitalGameEnvironment::processDynamics(std::vector<Eigen::Vector3d>& actions)
+    void OrbitalGameEnvironment::processDynamics(const std::vector<Eigen::Vector3d>& actions)
     {
         // TODO: 目前的输入动作是 J2000坐标系下的速度增量，后续可以修改成LVLH坐标系下的速度增量
         if (actions.size() != static_cast<size_t>(num_agents))
@@ -408,7 +413,7 @@ namespace oge
         return reward_time_weight;
     }
 
-    void OrbitalGameEnvironment::act(std::vector<Eigen::Vector3d>& agents_actions)
+    void OrbitalGameEnvironment::act(const std::vector<Eigen::Vector3d>& agents_actions)
     {
         if (agents_actions.size() != static_cast<size_t>(num_agents))
         {

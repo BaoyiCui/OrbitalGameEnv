@@ -25,7 +25,8 @@ namespace oge
         void getObservations(std::vector<Eigen::VectorXd>& observations) const;
         bool getTerminal() const;
         bool getTruncated() const;
-        void act(std::vector<Eigen::Vector3d>& actions);
+        double getCurrentTime() const;
+        void act(const std::vector<Eigen::Vector3d>& actions);
         void reset();
 
         int getInt(const std::string& key, bool strict = false) const;

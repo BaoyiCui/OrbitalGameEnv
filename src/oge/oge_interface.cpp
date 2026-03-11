@@ -39,7 +39,12 @@ namespace oge
         return environment->isTruncated();
     }
 
-    void OGEInterface::act(std::vector<Eigen::Vector3d>& actions)
+    double OGEInterface::getCurrentTime() const
+    {
+        return environment->getCurrentTime();
+    }
+
+    void OGEInterface::act(const std::vector<Eigen::Vector3d>& actions)
     {
         environment->act(actions);
     }

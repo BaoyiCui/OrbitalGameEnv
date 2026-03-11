@@ -76,3 +76,15 @@ class OGEInterface:
     def getBool(self, key: str, strict: bool = False) -> bool: ...
 
     def getString(self, key: str, strict: bool = False) -> str: ...
+
+
+class OGEVectorInterface:
+    def __init__(
+            self
+    ):
+        # TODO
+        pass
+
+try :
+    from oge_py.env import OGEEnv, OGEEnvCfg
+    from oge_py.vector_env import OGE

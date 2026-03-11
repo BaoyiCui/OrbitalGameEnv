@@ -32,8 +32,7 @@ namespace oge::vector
     struct EnvironmentAction
     {
         int env_id; // ID of the environment to apply the action to
-        int action_id; // ID of the action to take
-        std::vector<Eigen::Vector3d> actions;
+        std::vector<Eigen::Vector3d> actions; // agents' actions in an environment
     };
 
     /**
@@ -42,10 +41,13 @@ namespace oge::vector
     struct Timestep
     {
         int env_id; // ID of the environment this observation is from
-        std::vector<Eigen::VectorXd> observations; // Screen pixel data
+        std::vector<Eigen::VectorXd> observations;
         std::vector<double> rewards; // Reward received in this step
         bool terminated; // Whether the game ended
         bool truncated; // Whether the episode was truncated due to a time limit
+        double current_time;
+
+        std::optional<std::vector<Eigen::VectorXd>> final_observations; // only used when autoreset mode set to SameStep
     };
 
     enum class AutoresetMode

@@ -13,6 +13,7 @@
 #include <vector>
 #include <random>
 
+
 namespace oge
 {
     class OrbitalGameEnvironment
@@ -23,7 +24,7 @@ namespace oge
         /** Reset the environment to its start state. */
         void reset();
 
-        void act(std::vector<Eigen::Vector3d>& agents_actions);
+        void act(const std::vector<Eigen::Vector3d>& agents_actions);
 
         bool isTerminal() const;
 
@@ -35,15 +36,15 @@ namespace oge
         /** Returns the observation vector size for agent at index agent_idx. */
         int getObsSize(int agent_idx) const;
 
+        double getCurrentTime() const;
+
         static bool almost_equal(double a, double b, double epsilon = 1e-12)
         {
             return std::abs(a - b) < epsilon;
         }
 
     private:
-        void processDynamics(
-            std::vector<Eigen::Vector3d>& actions
-        );
+        void processDynamics(const std::vector<Eigen::Vector3d>& actions);
         void checkAlive();
 
         double getFormationReward() const;
@@ -98,5 +99,6 @@ namespace oge
         std::uniform_int_distribution<int> TA_lead_distrib;
     };
 }
+
 
 #endif //ORBITALGAMEENV_ORBITAL_GAME_ENVIRONMENT_H
