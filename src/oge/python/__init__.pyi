@@ -98,10 +98,7 @@ class OGEVectorInterface:
             self,
             reset_indices: List[int],
             reset_seeds: List[int],
-    ) -> Tuple[
-        np.ndarray,  # observations: (batch, num_agents, obs_size)
-        Dict[str, Any],  # info: {"env_id": ndarray (batch,)}
-    ]: ...
+    ) -> Tuple[np.ndarray, Dict[str, Any]]: ...
 
     def send(
             self,
@@ -113,6 +110,8 @@ class OGEVectorInterface:
     ]: ...
 
     def get_num_envs(self) -> int: ...
+
+    def get_single_observation_size(self) -> int: ...
 
     def handle(self) -> np.ndarray: ...
 

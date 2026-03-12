@@ -288,7 +288,8 @@ void init_vector_module(nb::module_& m)
             return nb::make_tuple(observations, rewards, terminated, truncated, info);
         })
         .def("get_num_envs", &oge::vector::OGEVectorInterface::get_num_envs)
-        .def("handle", [](oge::vector::OGEVectorInterface& self)
+        .def("get_single_observation_size", &oge::vector::OGEVectorInterface::get_observation_shape)
+    .def("handle", [](oge::vector::OGEVectorInterface& self)
         {
             // Get the raw pointer to the AsyncVectorizer
             auto ptr = self.get_vectorizer();

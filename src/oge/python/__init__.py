@@ -34,9 +34,11 @@ __all__ = ["SatState", "OGESettings", "OGEInterface"]
 
 try:
     # TODO
-    from oge_py.env import OGEEnv
+    from oge_py.env import OGEEnv, OGEEnvCfg, OGEEnvStepMetadata
+    from oge_py.vector_env import OGEVectorEnv, OGEVectorEnvCfg
 
-    __all__ += ["OGEEnv"]
+    __all__ += ["OGEEnv", "OGEEnvCfg", "OGEEnvStepMetadata",
+                "OGEVectorEnv", "OGEVectorEnvCfg"]
 
 except ImportError:
     pass

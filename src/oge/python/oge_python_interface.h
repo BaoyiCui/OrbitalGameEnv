@@ -20,7 +20,7 @@
 #include "version.h"
 
 #ifdef BUILD_VECTOR_LIB
-#include "oge_vector_python_interface.h"
+#include "oge/python/oge_vector_python_interface.h"
 #endif
 
 namespace nb = nanobind;

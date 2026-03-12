@@ -81,7 +81,6 @@ namespace oge
         const double reward_capture_weight;
         const double reward_timeout_weight;
         const double reward_fuelout_weight;
-        const double reward_advantage_weight;
         const double reward_phase_dist_weight;
         const double phase_dist_transition_dist;
         /** Settings cache end */

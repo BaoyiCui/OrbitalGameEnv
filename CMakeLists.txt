@@ -7,6 +7,10 @@ option(BUILD_CPP_LIB "Build C++ Interface" ON)
 # Build the native Python bindings using pybind11
 option(BUILD_PYTHON_LIB "Build Python Interface" ON)
 
+# Build python vector interface
+option(BUILD_VECTOR_LIB "Build Vector Interface" OFF)
+
+
 # Set cmake module path
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 

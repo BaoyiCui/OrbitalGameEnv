@@ -81,7 +81,6 @@ namespace oge
         setInternal("reward_capture_weight", toString(floatSettings["reward_capture_weight"]), -1, true);
         setInternal("reward_timeout_weight", toString(floatSettings["reward_timeout_weight"]), -1, true);
         setInternal("reward_fuelout_weight", toString(floatSettings["reward_fuelout_weight"]), -1, true);
-        setInternal("reward_advantage_weight", toString(floatSettings["reward_advantage_weight"]), -1, true);
         setInternal("reward_phase_dist_weight", toString(floatSettings["reward_phase_dist_weight"]), -1, true);
         setInternal("phase_dist_transition_dist", toString(floatSettings["phase_dist_transition_dist"]), -1, true);
     }
@@ -163,8 +162,6 @@ namespace oge
             throw std::invalid_argument("OGESettings: reward_timeout_weight (penalty) must be <= 0");
         if (getFloat("reward_fuelout_weight") > 0.0)
             throw std::invalid_argument("OGESettings: reward_fuelout_weight (penalty) must be <= 0");
-        if (getFloat("reward_advantage_weight") < 0.0)
-            throw std::invalid_argument("OGESettings: reward_advantage_weight must be >= 0");
         if (getFloat("reward_phase_dist_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_phase_dist_weight must be >= 0");
 

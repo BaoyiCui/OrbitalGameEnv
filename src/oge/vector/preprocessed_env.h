@@ -2,8 +2,8 @@
 // Created by baoyicui on 3/9/26.
 //
 
-#ifndef ORBITALGAMEENV_PREPROCESSED_ENV_H
-#define ORBITALGAMEENV_PREPROCESSED_ENV_H
+#ifndef ORBITALGAMEENV_VECTOR_PREPROCESSED_ENV_H
+#define ORBITALGAMEENV_VECTOR_PREPROCESSED_ENV_H
 
 #include <memory>
 #include <vector>
@@ -22,7 +22,7 @@
 #endif
 
 #include <oge/oge_interface.h>
-#include "utils.h"
+#include "oge/vector/utils.h"
 
 namespace oge::vector
 {
@@ -111,4 +111,4 @@ namespace oge::vector
         double current_time_;
     };
 }
-#endif //ORBITALGAMEENV_PREPROCESSED_ENV_H
+#endif //ORBITALGAMEENV_VECTOR_PREPROCESSED_ENV_H

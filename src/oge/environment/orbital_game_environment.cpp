@@ -33,7 +33,6 @@ namespace oge
         reward_capture_weight(settings_.getFloat("reward_capture_weight")),
         reward_timeout_weight(settings_.getFloat("reward_timeout_weight")),
         reward_fuelout_weight(settings_.getFloat("reward_fuelout_weight")),
-        reward_advantage_weight(settings_.getFloat("reward_advantage_weight")),
         reward_phase_dist_weight(settings_.getFloat("reward_phase_dist_weight")),
         phase_dist_transition_dist(settings_.getFloat("phase_dist_transition_dist"))
     {
@@ -66,6 +65,7 @@ namespace oge
         {
             agent_ids.push_back("p_" + std::to_string(i));
         }
+        current_time = 0.0;
         reset();
     }
 

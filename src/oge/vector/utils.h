@@ -2,8 +2,8 @@
 // Created by baoyicui on 3/9/26.
 //
 
-#ifndef ORBITALGAMEENV_UTILS_H
-#define ORBITALGAMEENV_UTILS_H
+#ifndef ORBITALGAMEENV_VECTOR_UTILS_H
+#define ORBITALGAMEENV_VECTOR_UTILS_H
 
 #include <vector>
 #include <atomic>
@@ -266,4 +266,4 @@ namespace oge::vector
     };
 }
 
-#endif //ORBITALGAMEENV_UTILS_H
+#endif //ORBITALGAMEENV_VECTOR_UTILS_H

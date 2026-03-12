@@ -2,8 +2,8 @@
 // Created by baoyicui on 3/9/26.
 //
 
-#ifndef ORBITALGAMEENV_ASYNC_VECTORIZER_H
-#define ORBITALGAMEENV_ASYNC_VECTORIZER_H
+#ifndef ORBITALGAMEENV_VECTOR_ASYNC_VECTORIZER_H
+#define ORBITALGAMEENV_VECTOR_ASYNC_VECTORIZER_H
 
 #include <vector>
 #include <thread>
@@ -13,8 +13,8 @@
 #endif
 
 #include "oge/external/ThreadPool.h"
-#include "utils.h"
-#include "preprocessed_env.h"
+#include "oge/vector/utils.h"
+#include "oge/vector/preprocessed_env.h"
 
 namespace oge::vector
 {
@@ -278,4 +278,4 @@ namespace oge::vector
     };
 }
 
-#endif //ORBITALGAMEENV_ASYNC_VECTORIZER_H
+#endif //ORBITALGAMEENV_VECTOR_ASYNC_VECTORIZER_H
