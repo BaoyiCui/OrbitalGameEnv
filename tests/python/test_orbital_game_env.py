@@ -7,7 +7,7 @@ def test_init_then_get_observations_returns_1d_array(oge):
     oge.init()
     obs = oge.get_observations()
     assert isinstance(obs, np.ndarray)
-    assert obs.ndim == 1
+    assert obs.ndim == 2
     assert obs.size > 0
 
 
@@ -40,6 +40,6 @@ def test_observation_shape_stable_across_reset(oge):
     oge.reset()
     after = oge.get_observations()
 
-    assert before.ndim == 1
-    assert after.ndim == 1
+    assert before.ndim == 2
+    assert after.ndim == 2
     assert before.shape == after.shape

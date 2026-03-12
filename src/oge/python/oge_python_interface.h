@@ -36,6 +36,9 @@ namespace oge
 
         nb::ndarray<nb::numpy, double> getRewards(const nb::ndarray<nb::numpy, const double>& actions) const;
         nb::ndarray<nb::numpy, double> getObservations() const;
+        int getObsSize() const;
+        bool isTerminal() const;
+        bool isTruncated() const;
         void act(const nb::ndarray<nb::numpy, const double>& actions);
     };
 }
@@ -60,10 +63,10 @@ NB_MODULE(_oge_py, m)
     nb::class_<oge::OGESettings>(m, "OGESettings")
         .def(nb::init<>())
         .def("validate", &oge::OGESettings::validate)
-        .def("set_int", &oge::OGESettings::setInt)
-        .def("set_float", &oge::OGESettings::setFloat)
-        .def("set_bool", &oge::OGESettings::setBool)
-        .def("set_string", &oge::OGESettings::setString)
+        .def("set_int", &oge::OGESettings::setInt, "key"_a, "value"_a)
+        .def("set_float", &oge::OGESettings::setFloat, "key"_a, "value"_a)
+        .def("set_bool", &oge::OGESettings::setBool, "key"_a, "value"_a)
+        .def("set_string", &oge::OGESettings::setString, "key"_a, "value"_a)
         .def("get_int", &oge::OGESettings::getInt, "key"_a, "strict"_a = false)
         .def("get_float", &oge::OGESettings::getFloat, "key"_a, "strict"_a = false)
         .def("get_bool", &oge::OGESettings::getBool, "key"_a, "strict"_a = false)
@@ -71,13 +74,17 @@ NB_MODULE(_oge_py, m)
 
     nb::class_<oge::OGEPythonInterface>(m, "OGEInterface")
         .def(nb::init<>())
-        // .def_prop_ro("settings", [](oge::OGEPythonInterface& self) -> oge::OGESettings&
-        // {
-        //     return *self.settings;
-        // }, nb::rv_policy::reference_internal)
         .def("init", &oge::OGEPythonInterface::init)
         .def("get_rewards", &oge::OGEPythonInterface::getRewards)
         .def("get_observations", &oge::OGEPythonInterface::getObservations)
+        .def("is_terminal", &oge::OGEPythonInterface::isTerminal)
+        .def("is_truncated", &oge::OGEPythonInterface::isTruncated)
+        .def("get_obs_size", &oge::OGEPythonInterface::getObsSize)
+        .def("get_current_time", &oge::OGEPythonInterface::getCurrentTime)
+        .def("get_settings", [](oge::OGEPythonInterface& self)-> oge::OGESettings&
+        {
+            return *self.settings;
+        }, nb::rv_policy::reference_internal)
         .def("act", &oge::OGEPythonInterface::act)
         .def("reset", &oge::OGEPythonInterface::reset)
         .def("init", &oge::OGEPythonInterface::init)

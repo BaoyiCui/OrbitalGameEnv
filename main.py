@@ -1,15 +1,12 @@
-from scripts.env.pe_env import PEEnv
+import oge_py
+from oge_py.env import OGEEnv, OGEEnvCfg
 
+if __name__ == "__main__":
+    cfg = OGEEnvCfg()
+    env = OGEEnv(cfg)
 
-def train(env_fn, steps=1e4, seed:int | None=0, **env_kwargs ):
-    env = env_fn.parallel_env(**env_kwargs)
+    print(env.cfg.num_pursuers)
+    print(env.cfg.num_evaders)
+    obs, _ = env.reset()
 
-    env = PEEnv()
-
-    print(f'Starting training on {env.metadata['name']}')
-
-    model = PPO()
-
-
-if __name__ == '__main__':
-    main()
+    print(obs)

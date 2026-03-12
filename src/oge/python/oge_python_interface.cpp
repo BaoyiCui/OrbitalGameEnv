@@ -5,7 +5,8 @@
 
 namespace oge
 {
-    nb::ndarray<nb::numpy, double> OGEPythonInterface::getRewards(const nb::ndarray<nb::numpy, const double>& actions) const
+    nb::ndarray<nb::numpy, double> OGEPythonInterface::getRewards(
+        const nb::ndarray<nb::numpy, const double>& actions) const
     {
         if (actions.ndim() != 2)
             throw std::runtime_error("Expected a numpy array with two dimensions.");
@@ -42,7 +43,7 @@ namespace oge
         if (observations.size() != num_agents)
         {
             throw std::runtime_error(
-                "getObservations returns wrong number of agent observations. Expected "
+                "getObservations() returns wrong number of agent observations. Expected "
                 + std::to_string(num_agents)
                 + " but got " + std::to_string(observations.size())
             );
@@ -56,7 +57,7 @@ namespace oge
             if (observation.size() != obs_size)
             {
                 throw std::runtime_error(
-                    "getObservations returns wrong observation size. Expected "
+                    "getObservations() returns wrong observation size. Expected "
                     + std::to_string(obs_size)
                     + " but got " + std::to_string(observation.size())
                 );
@@ -77,6 +78,21 @@ namespace oge
         auto obs = nb::ndarray<nb::numpy, double>(obs_data, 2, obs_shape, obs_owner);
 
         return obs;
+    }
+
+    int OGEPythonInterface::getObsSize() const
+    {
+        return environment->getObsSize(0);
+    }
+
+    bool OGEPythonInterface::isTerminal() const
+    {
+        return environment->isTerminal();
+    }
+
+    bool OGEPythonInterface::isTruncated() const
+    {
+        return environment->isTruncated();
     }
 
     void OGEPythonInterface::act(const nb::ndarray<nb::numpy, const double>& actions)

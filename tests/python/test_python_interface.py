@@ -13,7 +13,7 @@ def test_oge_construction(oge, oge_module):
 
 
 def test_settings_property_available(oge, oge_module):
-    assert isinstance(oge.settings, oge_module.OGESettings)
+    assert isinstance(oge.get_settings(), oge_module.OGESettings)
 
 
 def test_set_get_int_roundtrip(oge):
