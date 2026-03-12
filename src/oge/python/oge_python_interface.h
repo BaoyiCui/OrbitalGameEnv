@@ -34,9 +34,9 @@ namespace oge
     public:
         using OGEInterface::OGEInterface;
 
-        nb::ndarray<nb::numpy, double> getRewards(nb::ndarray<nb::numpy, const double> actions) const;
+        nb::ndarray<nb::numpy, double> getRewards(const nb::ndarray<nb::numpy, const double>& actions) const;
         nb::ndarray<nb::numpy, double> getObservations() const;
-        void act(nb::ndarray<nb::numpy, double> actions);
+        void act(const nb::ndarray<nb::numpy, const double>& actions);
     };
 }
 
@@ -71,10 +71,10 @@ NB_MODULE(_oge_py, m)
 
     nb::class_<oge::OGEPythonInterface>(m, "OGEInterface")
         .def(nb::init<>())
-        .def_prop_ro("settings", [](oge::OGEPythonInterface& self) -> oge::OGESettings&
-        {
-            return *self.settings;
-        }, nb::rv_policy::reference_internal)
+        // .def_prop_ro("settings", [](oge::OGEPythonInterface& self) -> oge::OGESettings&
+        // {
+        //     return *self.settings;
+        // }, nb::rv_policy::reference_internal)
         .def("init", &oge::OGEPythonInterface::init)
         .def("get_rewards", &oge::OGEPythonInterface::getRewards)
         .def("get_observations", &oge::OGEPythonInterface::getObservations)
