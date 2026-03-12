@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
 
 #include "oge/vector/async_vectorizer.h"
 #include "oge/vector/preprocessed_env.h"
@@ -18,6 +19,7 @@
 #include <nanobind/stl/filesystem.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/eigen/dense.h>
 
 namespace nb = nanobind;
 
