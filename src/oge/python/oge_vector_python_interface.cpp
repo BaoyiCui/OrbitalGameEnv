@@ -294,10 +294,16 @@ void init_vector_module(nb::module_& m)
             auto ptr = self.get_vectorizer();
 
             // Allocate memory for handle array
+            auto handle_raw = std::unique_ptr<uint8_t[]>(new uint8_t[sizeof(ptr)]);
+            std::memcpy(handle_raw.get(), &ptr, sizeof(ptr));
 
             // Create capsule for cleanup
+            auto* handle_data = handle_raw.release();
+            nb::capsule handle_owner(handle_data, [](void* p)noexcept { delete[] static_cast<uint8_t*>(p); });
 
             // Create numpy array
+            size_t shape[1] = {sizeof(ptr)};
+            return nb::ndarray<nb::numpy, uint8_t>(handle_data, 1, shape, handle_owner);
         });
 }
 

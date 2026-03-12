@@ -80,11 +80,44 @@ class OGEInterface:
 
 class OGEVectorInterface:
     def __init__(
-            self
-    ):
-        # TODO
-        pass
+            self,
+            num_envs: int,
+            batch_size: int = 0,
+            num_threads: int = 0,
+            thread_affinity_offset: int = -1,
+            autoreset_mode: str = "NextStep",
+    ) -> None: ...
 
-try :
+    def reset(
+            self,
+            reset_indices: List[int],
+            reset_seeds: List[int],
+    ) -> Tuple[
+        np.ndarray,  # observations: (batch, num_agents, obs_size)
+        Dict[str, Any],  # info: {"env_id": ndarray (batch,)}
+    ]: ...
+
+    def send(
+            self,
+            actions: np.ndarray,  # shape: (batch_size, num_agents, 3)
+    ) -> None: ...
+
+    def recv(self) -> Tuple[
+        np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]
+    ]: ...
+
+    def get_num_envs(self) -> int: ...
+
+    def handle(self) -> np.ndarray: ...
+
+
+try:
     from oge_py.env import OGEEnv, OGEEnvCfg
-    from oge_py.vector_env import OGE
+    from oge_py.vector_env import OGEVectorEnv
+
+    OGEEnv: TypeAlias = OGEEnv
+    OGEEnvCfg: TypeAlias = OGEEnvCfg
+    OGEVectorEnv: TypeAlias = OGEVectorEnv
+
+except ImportError:
+    pass
