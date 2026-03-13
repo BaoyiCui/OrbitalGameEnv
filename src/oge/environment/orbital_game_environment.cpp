@@ -2,6 +2,9 @@
 // Created by baoyicui on 2/22/26.
 //
 
+#include "oge/simcore/math.h"
+#include "oge/simcore/utils.h"
+
 #include "orbital_game_environment.h"
 
 namespace oge
@@ -118,8 +121,8 @@ namespace oge
         for (int e = 0; e < num_evaders; ++e)
         {
             observations[e].resize(getObsSize(e));
-            observations[e].segment<3>(0) = agents_states[e].r_j2000;
-            observations[e].segment<3>(3) = agents_states[e].v_j2000;
+            observations[e].segment<3>(0) = signed_log(agents_states[e].r_j2000);
+            observations[e].segment<3>(3) = signed_log(agents_states[e].v_j2000);
             for (int p = num_evaders; p < num_agents; ++p)
             {
                 Eigen::Vector3d r_p_lvlh;
@@ -129,15 +132,15 @@ namespace oge
                     agents_states[p].r_j2000, agents_states[p].v_j2000,
                     r_p_lvlh, v_p_lvlh
                 );
-                observations[e].segment<3>(6 + 3 * (p - num_evaders)) = r_p_lvlh;
+                observations[e].segment<3>(6 + 3 * (p - num_evaders)) = signed_log(r_p_lvlh);
             }
         }
 
         for (int p = num_evaders; p < num_agents; ++p)
         {
             observations[p].resize(getObsSize(p));
-            observations[p].segment<3>(0) = agents_states[p].r_j2000;
-            observations[p].segment<3>(3) = agents_states[p].v_j2000;
+            observations[p].segment<3>(0) = signed_log(agents_states[p].r_j2000);
+            observations[p].segment<3>(3) = signed_log(agents_states[p].v_j2000);
 
             // other pursuers' positions in this pursuer's LVLH frame
             int offset = 6;
@@ -152,7 +155,7 @@ namespace oge
                     agents_states[other_p].r_j2000, agents_states[other_p].v_j2000,
                     r_other_p_lvlh, v_other_p_lvlh
                 );
-                observations[p].segment<3>(offset) = r_other_p_lvlh;
+                observations[p].segment<3>(offset) = signed_log(r_other_p_lvlh);
                 offset += 3;
             }
 
@@ -163,7 +166,7 @@ namespace oge
                 agents_states[0].r_j2000, agents_states[0].v_j2000,
                 r_e_lvlh, v_e_lvlh
             );
-            observations[p].segment<3>(getObsSize(p) - 3) = r_e_lvlh;
+            observations[p].segment<3>(getObsSize(p) - 3) = signed_log(r_e_lvlh);
         }
     }
 
@@ -397,7 +400,8 @@ namespace oge
 
     double OrbitalGameEnvironment::getTimeReward() const
     {
-        return reward_time_weight;
+        if (current_time)
+            return reward_time_weight;
     }
 
     void OrbitalGameEnvironment::act(const std::vector<Eigen::Vector3d>& agents_actions)

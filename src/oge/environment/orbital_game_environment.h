@@ -5,7 +5,7 @@
 #ifndef ORBITALGAMEENV_ORBITAL_GAME_ENVIRONMENT_H
 #define ORBITALGAMEENV_ORBITAL_GAME_ENVIRONMENT_H
 
-#include "oge/simcore/propagator.h"
+
 #include "oge/environment/oge_state.h"
 #include "oge/environment/oge_settings.h"
 
