@@ -39,6 +39,8 @@ try:
 
     __all__ += ["OGEEnv", "OGEEnvCfg", "OGEEnvStepMetadata",
                 "OGEVectorEnv", "OGEVectorEnvCfg"]
+                
+    from oge_py._oge_py import OGEVectorInterface
 
 except ImportError:
     pass

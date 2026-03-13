@@ -10,12 +10,39 @@ void init_vector_module(nb::module_& m)
 {
     // Define OGEVectorInterface class
     nb::class_<oge::vector::OGEVectorInterface>(m, "OGEVectorInterface")
-        .def(nb::init<int, int, int, int, std::string>(),
+        .def("__init__",
+             [](oge::vector::OGEVectorInterface* self,
+                int num_envs, int batch_size, int num_threads,
+                int thread_affinity_offset, const std::string& autoreset_mode)
+             {
+                 new (self) oge::vector::OGEVectorInterface(
+                     num_envs, batch_size, num_threads, thread_affinity_offset, autoreset_mode);
+             },
              nb::arg("num_envs"),
              nb::arg("batch_size") = 0,
              nb::arg("num_threads") = 0,
              nb::arg("thread_affinity_offset") = -1,
              nb::arg("autoreset_mode") = "NextStep")
+        .def("__init__",
+             [](oge::vector::OGEVectorInterface* self,
+                int num_envs, int batch_size, int num_threads,
+                int thread_affinity_offset, const std::string& autoreset_mode,
+                oge::OGESettings& settings)
+             {
+                 auto configure_fn = [&settings](oge::OGEInterface& iface)
+                 {
+                     settings.copyTo(*iface.settings);
+                 };
+                 new (self) oge::vector::OGEVectorInterface(
+                     num_envs, batch_size, num_threads, thread_affinity_offset,
+                     autoreset_mode, configure_fn);
+             },
+             nb::arg("num_envs"),
+             nb::arg("batch_size") = 0,
+             nb::arg("num_threads") = 0,
+             nb::arg("thread_affinity_offset") = -1,
+             nb::arg("autoreset_mode") = "NextStep",
+             nb::arg("settings"))
         .def("reset", [](oge::vector::OGEVectorInterface& self, const std::vector<int> reset_indices,
                          const std::vector<int> reset_seeds)
         {
@@ -315,14 +342,15 @@ namespace oge::vector
         const int batch_size,
         const int num_threads,
         const int thread_affinity_offset,
-        const std::string& autoreset_mode
+        const std::string& autoreset_mode,
+        ConfigureFn configure_fn
     ) : num_envs_(num_envs),
         received_env_ids_(batch_size > 0 ? batch_size : num_envs)
     {
         // create environment factory
-        auto env_factory = [this](int env_id)
+        auto env_factory = [configure_fn](int env_id)
         {
-            return std::make_unique<PreprocessedEnv>(env_id);
+            return std::make_unique<PreprocessedEnv>(env_id, configure_fn);
         };
 
         if (autoreset_mode == "NextStep")

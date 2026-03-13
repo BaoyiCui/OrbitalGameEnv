@@ -90,6 +90,9 @@ namespace oge
         */
         void setString(const std::string& key, const std::string& value);
 
+        /** Copy all settings from this object into dst. */
+        void copyTo(OGESettings& dst) const;
+
     private:
         // Trim leading and following witespace from a string
         static std::string trim(std::string& str)

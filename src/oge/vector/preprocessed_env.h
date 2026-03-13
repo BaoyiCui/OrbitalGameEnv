@@ -11,6 +11,7 @@
 #include <random>
 #include <string>
 #include <algorithm>
+#include <functional>
 
 // SIMD intrinsics for maxpooling optimization
 #if defined(__AVX2__)
@@ -29,12 +30,15 @@ namespace oge::vector
     class PreprocessedEnv
     {
     public:
+        using ConfigureFn = std::function<void(oge::OGEInterface&)>;
+
         PreprocessedEnv(
-            const int env_id
+            const int env_id,
+            const ConfigureFn& configure = nullptr
         ) : env_id_(env_id)
         {
             env_ = std::make_unique<OGEInterface>();
-            // TODO: how to set configurations here
+            if (configure) configure(*env_);
             env_->init();
             reset();
         }
@@ -46,9 +50,9 @@ namespace oge::vector
 
         void reset()
         {
-            env_.reset();
+            env_->reset();
             env_->getObservations(current_observations_);
-            current_rewards_.assign(current_rewards_.size(), 0.0);
+            current_rewards_.assign(current_observations_.size(), 0.0);
             current_terminated_ = env_->getTerminal();
             current_truncated_ = env_->getTruncated();
             current_time_ = 0.0;
@@ -77,7 +81,7 @@ namespace oge::vector
 
         std::tuple<int, int> get_obs_shape() const
         {
-            const int num_agents = env_->getInt("num_agents");
+            const int num_agents = env_->getInt("num_pursuers") + env_->getInt("num_evaders");
             const int obs_size = env_->environment->getObsSize(0);
             return {num_agents, obs_size};
         }
@@ -98,6 +102,46 @@ namespace oge::vector
             timestep.current_time = current_time_;
 
             return timestep;
+        }
+
+        int getInt(const std::string& key, bool strict) const
+        {
+            return env_->getInt(key, strict);
+        }
+
+        float getFloat(const std::string& key, bool strict) const
+        {
+            return env_->getFloat(key, strict);
+        }
+
+        bool getBool(const std::string& key, bool strict) const
+        {
+            return env_->getBool(key, strict);
+        }
+
+        const std::string& getString(const std::string& key, bool strict) const
+        {
+            return env_->getString(key, strict);
+        }
+
+        void setInt(const std::string& key, const int value)
+        {
+            env_->setInt(key, value);
+        }
+
+        void setFloat(const std::string& key, const float value)
+        {
+            env_->setFloat(key, value);
+        }
+
+        void setBool(const std::string& key, const bool value)
+        {
+            env_->setBool(key, value);
+        }
+
+        void setString(const std::string& key, const std::string& value)
+        {
+            env_->setString(key, value);
         }
 
     private:

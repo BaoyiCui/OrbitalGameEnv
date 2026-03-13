@@ -171,6 +171,15 @@ namespace oge
             throw std::invalid_argument("OGESettings: phase_dist_transition_dist must be > 0");
     }
 
+    void OGESettings::copyTo(OGESettings& dst) const
+    {
+        for (const auto& s : myInternalSettings)
+            dst.setInternal(s.key, s.value);
+        for (const auto& s : myExternalSettings)
+            dst.setExternal(s.key, s.value);
+    }
+
+
     void OGESettings::setInt(const std::string& key, const int value)
     {
         std::ostringstream stream;

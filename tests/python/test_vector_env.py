@@ -25,12 +25,15 @@ BATCH_SIZE = 4
 @pytest.fixture(scope="module")
 def iface() -> oge_py.OGEVectorInterface:
     """A real OGEVectorInterface with 4 envs."""
+    settings = oge_py.OGESettings()
+    settings.set_int("num_pursuers", NUM_PURSUERS)
     return oge_py.OGEVectorInterface(
         NUM_ENVS,
         BATCH_SIZE,
         0,   # num_threads: auto
         -1,  # thread_affinity_offset: disabled
         "NextStep",
+        settings,
     )
 
 
@@ -268,14 +271,9 @@ class TestVectorEnvReset:
         with pytest.raises(TypeError):
             env.reset(seed="bad")
 
-    def test_reset_with_reset_mask_does_not_raise(self, env):
-        env.reset()
-        mask = np.array([True, False, True, False], dtype=np.bool_)
-        env.reset(options={"reset_mask": mask})
-
-    def test_reset_mask_wrong_dtype_raises(self, env):
-        with pytest.raises(AssertionError):
-            env.reset(options={"reset_mask": np.array([1, 0, 1, 0], dtype=np.int32)})
+    def test_reset_mask_raises(self, env):
+        with pytest.raises(ValueError):
+            env.reset(options={"reset_mask": np.array([True, False, True, False], dtype=np.bool_)})
 
     def test_reset_obs_shape_stable_across_calls(self, env):
         obs1, _ = env.reset()

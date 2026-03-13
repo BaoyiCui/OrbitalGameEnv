@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import oge_py
 import gymnasium.vector.utils
@@ -28,12 +28,29 @@ class OGEVectorEnv(VectorEnv):
             cfg: OGEVectorEnvCfg
     ):
         self.cfg = cfg
+
+        settings = oge_py.OGESettings()
+        cfg_dict = asdict(self.cfg)
+        _VECTOR_ONLY_KEYS = {"num_envs", "batch_size", "num_threads", "thread_affinity_offset", "autoreset_mode"}
+        for key, value in cfg_dict.items():
+            if key in _VECTOR_ONLY_KEYS:
+                continue
+            if isinstance(value, bool):
+                settings.set_bool(key, value)
+            elif isinstance(value, int):
+                settings.set_int(key, value)
+            elif isinstance(value, float):
+                settings.set_float(key, value)
+            elif isinstance(value, str):
+                settings.set_string(key, value)
+
         self.oge = oge_py.OGEVectorInterface(
             self.cfg.num_envs,
             self.cfg.batch_size,
             self.cfg.num_threads,
             self.cfg.thread_affinity_offset,
-            self.cfg.autoreset_mode
+            self.cfg.autoreset_mode,
+            settings
         )
 
         self.metadata["autoreset_mode"] = (
@@ -42,10 +59,11 @@ class OGEVectorEnv(VectorEnv):
             else AutoresetMode(self.cfg.autoreset_mode)
         )
 
+        _, single_obs_size = self.oge.get_single_observation_size()
         self.single_observation_space = Box(
             low=-np.inf,
             high=np.inf,
-            shape=(self.oge.get_single_observation_size(),),
+            shape=(single_obs_size,),
             dtype=np.float64
         )
         self.single_action_space = Box(
@@ -69,20 +87,21 @@ class OGEVectorEnv(VectorEnv):
             seed: int | np.ndarray | None = None,
             options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, dict[str, Any]]:
-        """Reset the sub-environment"""
-        if options is None or "reset_mask" not in options:
-            reset_indices = np.arange(self.cfg.num_envs)
-        else:
-            reset_mask = options["reset_mask"]
-            assert isinstance(reset_mask, np.ndarray) and reset_mask.dtype == np.bool_
-            (reset_indices,) = np.where(reset_mask)
+        """Reset all sub-environments. Partial reset via reset_mask is not supported."""
+        if options is not None and "reset_mask" in options:
+            raise ValueError(
+                "Partial reset via 'reset_mask' is not supported. "
+                "Use autoreset_mode to handle per-environment resets automatically."
+            )
+
+        reset_indices = list(range(self.cfg.num_envs))
 
         if seed is None:
-            reset_seeds = np.full(len(reset_indices), -1)
+            reset_seeds = [-1] * self.cfg.num_envs
         elif isinstance(seed, int):
-            reset_seeds = np.arange(seed, seed + len(reset_indices))
+            reset_seeds = list(range(seed, seed + self.cfg.num_envs))
         elif isinstance(seed, np.ndarray):
-            reset_seeds = seed
+            reset_seeds = seed.tolist()
         else:
             raise TypeError("Unsupported seed type")
 

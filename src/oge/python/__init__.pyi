@@ -111,18 +111,23 @@ class OGEVectorInterface:
 
     def get_num_envs(self) -> int: ...
 
-    def get_single_observation_size(self) -> int: ...
+    def get_single_observation_size(self) -> int:
+        """
+        Get the size of one agent's observation
+        """
+        ...
 
     def handle(self) -> np.ndarray: ...
 
 
 try:
     from oge_py.env import OGEEnv, OGEEnvCfg
-    from oge_py.vector_env import OGEVectorEnv
+    from oge_py.vector_env import OGEVectorEnv, OGEVectorEnvCfg
 
     OGEEnv: TypeAlias = OGEEnv
     OGEEnvCfg: TypeAlias = OGEEnvCfg
     OGEVectorEnv: TypeAlias = OGEVectorEnv
+    OGEVectorEnvCfg: TypeAlias = OGEVectorEnvCfg
 
 except ImportError:
     pass

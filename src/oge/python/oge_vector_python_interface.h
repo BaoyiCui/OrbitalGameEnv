@@ -8,16 +8,19 @@
 #include <vector>
 #include <stdexcept>
 #include <algorithm>
+#include <functional>
 
 #include "oge/vector/async_vectorizer.h"
 #include "oge/vector/preprocessed_env.h"
 #include "oge/vector/utils.h"
 #include "oge/common/log.h"
+#include "oge/environment/oge_settings.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/filesystem.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/eigen/dense.h>
 
@@ -31,12 +34,15 @@ namespace oge::vector
     class OGEVectorInterface
     {
     public:
+        using ConfigureFn = std::function<void(oge::OGEInterface&)>;
+
         OGEVectorInterface(
             const int num_envs,
             const int batch_size,
             const int num_threads,
             const int thread_affinity_offset = -1,
-            const std::string& autoreset_mode = "NextStep"
+            const std::string& autoreset_mode = "NextStep",
+            ConfigureFn configure_fn = nullptr
         );
 
         std::vector<Timestep> reset(

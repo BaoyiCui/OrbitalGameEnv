@@ -54,7 +54,6 @@ class TestConstruction:
 class TestReset:
     def test_reset_returns_tuple(self, env):
         result = env.reset()
-        print(result)
         assert isinstance(result, tuple)
         assert len(result) == 2
 
