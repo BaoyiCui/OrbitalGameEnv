@@ -104,7 +104,7 @@ namespace oge
         Eigen::Vector3d H = R.cross(V);
         double h = H.norm();
 
-        double incl = std::acos(std::clamp(H(2) / h, -1.0, 1.0));
+        double incl = (h > eps) ? std::acos(std::clamp(H(2) / h, -1.0, 1.0)) : 0.0;
 
         Eigen::Vector3d N = Eigen::Vector3d(0, 0, 1).cross(H);
         double n = N.norm();
@@ -158,14 +158,24 @@ namespace oge
         }
         else
         {
-            Eigen::Vector3d cp = N.cross(R);
-            if (cp(2) >= 0)
+            if (std::abs(n) > eps)
             {
-                TA = std::acos(std::clamp(N.dot(R) / n / r, -1.0, 1.0));
+                // Circular inclined orbit: TA measured from ascending node
+                Eigen::Vector3d cp = N.cross(R);
+                if (cp(2) >= 0)
+                {
+                    TA = std::acos(std::clamp(N.dot(R) / n / r, -1.0, 1.0));
+                }
+                else
+                {
+                    TA = 2 * M_PI - std::acos(std::clamp(N.dot(R) / n / r, -1.0, 1.0));
+                }
             }
             else
             {
-                TA = 2 * M_PI - std::acos(std::clamp(N.dot(R) / n / r, -1.0, 1.0));
+                // Circular equatorial orbit: use true longitude (angle of R from x-axis)
+                TA = std::atan2(R(1), R(0));
+                if (TA < 0.0) TA += 2.0 * M_PI;
             }
         }
         double a = h * h / MU / (1 - e * e);

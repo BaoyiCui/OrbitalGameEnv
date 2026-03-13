@@ -19,7 +19,6 @@ namespace oge
         intSettings["random_seed"] = 42;
         intSettings["num_pursuers"] = 1;
         intSettings["num_evaders"] = 1;
-        intSettings["advantage_reward_horizon"] = 10;
 
         // float defaults
         floatSettings["sma_base"] = 42164.0f;
@@ -54,7 +53,6 @@ namespace oge
         setInternal("random_seed", toString(intSettings["random_seed"]), -1, true);
         setInternal("num_pursuers", toString(intSettings["num_pursuers"]), -1, true);
         setInternal("num_evaders", toString(intSettings["num_evaders"]), -1, true);
-        setInternal("advantage_reward_horizon", toString(intSettings["advantage_reward_horizon"]), -1, true);
 
         setInternal("sma_base", toString(floatSettings["sma_base"]), -1, true);
         setInternal("ecc_base", toString(floatSettings["ecc_base"]), -1, true);
@@ -164,9 +162,6 @@ namespace oge
             throw std::invalid_argument("OGESettings: reward_fuelout_weight (penalty) must be <= 0");
         if (getFloat("reward_phase_dist_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_phase_dist_weight must be >= 0");
-
-        if (getInt("advantage_reward_horizon") <= 0)
-            throw std::invalid_argument("OGESettings: advantage_reward_horizon must be > 0");
         if (getFloat("phase_dist_transition_dist") <= 0.0)
             throw std::invalid_argument("OGESettings: phase_dist_transition_dist must be > 0");
     }

@@ -85,6 +85,7 @@ class OGEInterface:
 
 
 class OGEVectorInterface:
+    @overload
     def __init__(
             self,
             num_envs: int,
@@ -92,6 +93,17 @@ class OGEVectorInterface:
             num_threads: int = 0,
             thread_affinity_offset: int = -1,
             autoreset_mode: str = "NextStep",
+    ) -> None: ...
+
+    @overload
+    def __init__(
+            self,
+            num_envs: int,
+            batch_size: int = 0,
+            num_threads: int = 0,
+            thread_affinity_offset: int = -1,
+            autoreset_mode: str = "NextStep",
+            settings: OGESettings = ...,
     ) -> None: ...
 
     def reset(

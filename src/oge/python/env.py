@@ -19,9 +19,42 @@ class OGEEnvStepMetadata(TypedDict):
 
 @dataclass
 class OGEEnvCfg:
+    # int settings
+    random_seed: int = 42
     num_pursuers: int = 4
     num_evaders: int = 1
-    pass
+
+    # float settings - orbital elements
+    sma_base: float = 42164.0
+    ecc_base: float = 0.0
+    incl_base: float = 0.0
+    RA_base: float = 0.0
+    w_base: float = 0.0
+    TA_base: float = 0.0
+
+    # float settings - agent params
+    dv_init_p: float = 0.2
+    dv_init_e: float = 0.2
+    dv_max_per_step_p: float = 0.01
+    dv_max_per_step_e: float = 0.01
+    capture_distance: float = 5.0
+    timestep: float = 10.0
+    terminal_time: float = 3600.0
+
+    # float settings - initialization
+    sma_perturb_max: float = 10.0
+    dist_init_offset_min: float = 1.0
+    dist_init_offset_max: float = 20.0
+
+    # float settings - reward weights
+    reward_time_weight: float = -0.01
+    reward_formation_weight: float = 0.04
+    reward_fuel_weight: float = -0.05
+    reward_capture_weight: float = 10.0
+    reward_timeout_weight: float = -2.0
+    reward_fuelout_weight: float = -1.0
+    reward_phase_dist_weight: float = 1.0
+    phase_dist_transition_dist: float = 60.0
 
 
 class OGEEnv(gym.Env, utils.EzPickle):

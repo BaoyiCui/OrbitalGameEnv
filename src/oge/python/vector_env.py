@@ -15,10 +15,10 @@ from gymnasium.vector import AutoresetMode, VectorEnv
 
 @dataclass
 class OGEVectorEnvCfg(OGEEnvCfg):
-    num_envs: int = 4,
-    batch_size: int = 0,
-    num_threads: int = 0,
-    thread_affinity_offset: int = -1,
+    num_envs: int = 4
+    batch_size: int = 0
+    num_threads: int = 0
+    thread_affinity_offset: int = -1
     autoreset_mode: str = "NextStep"
 
 

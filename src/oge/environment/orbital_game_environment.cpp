@@ -55,7 +55,7 @@ namespace oge
 
         // initialize agent
         agent_ids.reserve(num_agents);
-        agents_states.reserve(num_agents);
+        agents_states.resize(num_agents);
 
         for (int i = 0; i < num_evaders; ++i)
         {
@@ -236,20 +236,11 @@ namespace oge
 
         for (int i = 0; i < num_agents; ++i)
         {
-            if (!agents_states[i].is_alive)
+            // Apply thrust only when fuel remains; propagate orbit for all agents regardless.
+            Eigen::Vector3d dv_modified = Eigen::Vector3d::Zero();
+            if (agents_states[i].dv_remain > 0.0 && !almost_equal(actions[i].norm(), 0.0))
             {
-                continue;
-            }
-
-            // constraints on dv
-            Eigen::Vector3d dv_modified;
-            double dv_max_per_step = (i < num_evaders) ? dv_max_per_step_e : dv_max_per_step_p;
-            if (agents_states[i].dv_remain <= 0.0)
-            {
-                throw std::runtime_error("Agent " + std::to_string(i) + " has no remaining dv but is still alive");
-            }
-            if (!almost_equal(actions[i].norm(), 0.0))
-            {
+                double dv_max_per_step = (i < num_evaders) ? dv_max_per_step_e : dv_max_per_step_p;
                 if (actions[i].norm() > std::min(dv_max_per_step, agents_states[i].dv_remain))
                 {
                     dv_modified = std::min(dv_max_per_step, agents_states[i].dv_remain) * actions[i].normalized();
@@ -258,10 +249,6 @@ namespace oge
                 {
                     dv_modified = actions[i];
                 }
-            }
-            else
-            {
-                dv_modified = Eigen::Vector3d::Zero();
             }
             // update agent's velocity in J2000
             agents_states[i].v_j2000 += dv_modified;
