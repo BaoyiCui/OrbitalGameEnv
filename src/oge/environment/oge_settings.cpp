@@ -48,6 +48,15 @@ namespace oge
         floatSettings["reward_fuelout_weight"] = -1.0; //panalty
         floatSettings["reward_phase_dist_weight"] = 1.0;
         floatSettings["phase_dist_transition_dist"] = 60.0;
+        floatSettings["reward_far_sma_penalty_scale"] = 2000.0;
+        floatSettings["reward_far_drift_scale"] = 1000.0;
+        floatSettings["reward_far_drift_max"] = 2.0;
+        floatSettings["reward_far_angle_weight"] = 0.5;
+        floatSettings["reward_near_energy_scale"] = 2000.0;
+        floatSettings["reward_near_energy_weight"] = 0.05;
+        floatSettings["reward_dist_capture_bonus"] = 0.1;
+        floatSettings["reward_dist_min"] = -1.0;
+        floatSettings["reward_alpha_scale"] = 2000.0;
 
         // register as internal defaults
         setInternal("random_seed", toString(intSettings["random_seed"]), -1, true);
@@ -81,6 +90,15 @@ namespace oge
         setInternal("reward_fuelout_weight", toString(floatSettings["reward_fuelout_weight"]), -1, true);
         setInternal("reward_phase_dist_weight", toString(floatSettings["reward_phase_dist_weight"]), -1, true);
         setInternal("phase_dist_transition_dist", toString(floatSettings["phase_dist_transition_dist"]), -1, true);
+        setInternal("reward_far_sma_penalty_scale", toString(floatSettings["reward_far_sma_penalty_scale"]), -1, true);
+        setInternal("reward_far_drift_scale", toString(floatSettings["reward_far_drift_scale"]), -1, true);
+        setInternal("reward_far_drift_max", toString(floatSettings["reward_far_drift_max"]), -1, true);
+        setInternal("reward_far_angle_weight", toString(floatSettings["reward_far_angle_weight"]), -1, true);
+        setInternal("reward_near_energy_scale", toString(floatSettings["reward_near_energy_scale"]), -1, true);
+        setInternal("reward_near_energy_weight", toString(floatSettings["reward_near_energy_weight"]), -1, true);
+        setInternal("reward_dist_capture_bonus", toString(floatSettings["reward_dist_capture_bonus"]), -1, true);
+        setInternal("reward_dist_min", toString(floatSettings["reward_dist_min"]), -1, true);
+        setInternal("reward_alpha_scale", toString(floatSettings["reward_alpha_scale"]), -1, true);
     }
 
     OGESettings::~OGESettings()

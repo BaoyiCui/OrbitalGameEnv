@@ -55,6 +55,16 @@ class OGEEnvCfg:
     reward_fuelout_weight: float = -1.0
     reward_phase_dist_weight: float = 1.0
     phase_dist_transition_dist: float = 60.0
+    # distance reward sub-parameters
+    reward_far_sma_penalty_scale: float = 2000.0  # far field: coefficient for sma_diff_ratio penalty when drifting in wrong direction
+    reward_far_drift_scale: float = 1000.0         # far field: scale sma_diff_ratio to [0, reward_far_drift_max] drift reward
+    reward_far_drift_max: float = 2.0              # far field: upper clamp for drift reward component
+    reward_far_angle_weight: float = 0.5           # far field: weight of angle component in positive far-field reward
+    reward_near_energy_scale: float = 2000.0       # near field: scale sma_diff_ratio for energy penalty
+    reward_near_energy_weight: float = 0.05        # near field: weight of energy penalty in near-field blend
+    reward_dist_capture_bonus: float = 0.1         # extra bonus per unit inside capture zone (dist < capture_distance)
+    reward_dist_min: float = -1.0                  # lower clamp for distance reward when pursuer is very far
+    reward_alpha_scale: float = 2000.0             # blending factor scale between near and far field rewards
 
 
 class OGEEnv(gym.Env, utils.EzPickle):

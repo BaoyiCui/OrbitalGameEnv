@@ -83,6 +83,16 @@ namespace oge
         const double reward_fuelout_weight;
         const double reward_phase_dist_weight;
         const double phase_dist_transition_dist;
+        // distance reward sub-parameters
+        const double reward_far_sma_penalty_scale;
+        const double reward_far_drift_scale;
+        const double reward_far_drift_max;
+        const double reward_far_angle_weight;
+        const double reward_near_energy_scale;
+        const double reward_near_energy_weight;
+        const double reward_dist_capture_bonus;
+        const double reward_dist_min;
+        const double reward_alpha_scale;
         /** Settings cache end */
 
         std::vector<std::string> agent_ids;

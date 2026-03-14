@@ -37,7 +37,17 @@ namespace oge
         reward_timeout_weight(settings_.getFloat("reward_timeout_weight")),
         reward_fuelout_weight(settings_.getFloat("reward_fuelout_weight")),
         reward_phase_dist_weight(settings_.getFloat("reward_phase_dist_weight")),
-        phase_dist_transition_dist(settings_.getFloat("phase_dist_transition_dist"))
+        phase_dist_transition_dist(settings_.getFloat("phase_dist_transition_dist")),
+        // distance reward sub-parameters
+        reward_far_sma_penalty_scale(settings_.getFloat("reward_far_sma_penalty_scale")),
+        reward_far_drift_scale(settings_.getFloat("reward_far_drift_scale")),
+        reward_far_drift_max(settings_.getFloat("reward_far_drift_max")),
+        reward_far_angle_weight(settings_.getFloat("reward_far_angle_weight")),
+        reward_near_energy_scale(settings_.getFloat("reward_near_energy_scale")),
+        reward_near_energy_weight(settings_.getFloat("reward_near_energy_weight")),
+        reward_dist_capture_bonus(settings_.getFloat("reward_dist_capture_bonus")),
+        reward_dist_min(settings_.getFloat("reward_dist_min")),
+        reward_alpha_scale(settings_.getFloat("reward_alpha_scale"))
     {
         settings.validate();
         /* Initialize random generator */
@@ -333,20 +343,20 @@ namespace oge
         double reward_far, reward_near;
         if (drift_product > 0.0)
         {
-            reward_far = -1.0 - std::abs(sma_diff_ratio) * 2000.0;
+            reward_far = -1.0 - std::abs(sma_diff_ratio) * reward_far_sma_penalty_scale;
         }
         else
         {
-            double r_drift = std::clamp(std::abs(sma_diff_ratio) * 1000.0, 0.0, 2.0);
+            double r_drift = std::clamp(std::abs(sma_diff_ratio) * reward_far_drift_scale, 0.0, reward_far_drift_max);
             double r_angle = (M_PI - std::abs(TA_delta)) / M_PI;
-            reward_far = 1.0 * r_drift + 0.5 * r_angle;
+            reward_far = 1.0 * r_drift + reward_far_angle_weight * r_angle;
         }
 
         double dist_normalized = distance / capture_distance;
         double reward_dist = 0.0;
         if (dist_normalized <= 1.0)
         {
-            reward_dist = 1.0 + 0.1 * (1.0 - dist_normalized);
+            reward_dist = 1.0 + reward_dist_capture_bonus * (1.0 - dist_normalized);
         }
         else if (dist_normalized <= 2.0)
         {
@@ -354,14 +364,13 @@ namespace oge
         }
         else
         {
-            reward_dist = std::clamp(2.0 - dist_normalized, -1.0, 0.0);
+            reward_dist = std::clamp(2.0 - dist_normalized, reward_dist_min, 0.0);
         }
 
-        // TODO: 下面这一段的参数改写到 settings 中
-        double reward_energy = -std::abs(sma_diff_ratio) * 2000.0;
-        reward_near = 1.0 * reward_dist + 0.05 * reward_energy;
+        double reward_energy = -std::abs(sma_diff_ratio) * reward_near_energy_scale;
+        reward_near = 1.0 * reward_dist + reward_near_energy_weight * reward_energy;
 
-        double alpha = std::abs(sma_diff_ratio) * 2000.0;
+        double alpha = std::abs(sma_diff_ratio) * reward_alpha_scale;
         double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
 
 
