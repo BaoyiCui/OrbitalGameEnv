@@ -39,6 +39,9 @@ namespace oge
 
         double getCurrentTime() const;
 
+        /** Returns true if any evader has been captured (is_alive == false). */
+        bool isCaptured() const;
+
         /** Returns a map from agent_id to SatState for all satellites. */
         std::unordered_map<std::string, SatState> getSatStates() const;
 

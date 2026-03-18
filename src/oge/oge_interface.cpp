@@ -44,6 +44,11 @@ namespace oge
         return environment->getCurrentTime();
     }
 
+    bool OGEInterface::isCaptured() const
+    {
+        return environment->isCaptured();
+    }
+
     void OGEInterface::act(const std::vector<Eigen::Vector3d>& actions)
     {
         environment->act(actions);

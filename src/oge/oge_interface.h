@@ -27,6 +27,7 @@ namespace oge
         bool getTerminal() const;
         bool getTruncated() const;
         double getCurrentTime() const;
+        bool isCaptured() const;
         void act(const std::vector<Eigen::Vector3d>& actions);
         void reset();
         std::unordered_map<std::string, SatState> getSatStates() const;

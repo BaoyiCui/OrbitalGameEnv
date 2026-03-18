@@ -165,6 +165,10 @@ class OGEEnv(gym.Env, utils.EzPickle):
             for name, state in raw.items()
         }
 
+    def is_captured(self) -> bool:
+        """Returns True if any pursuer has captured the evader."""
+        return self.oge.is_captured()
+
     def _get_info(self) -> OGEEnvStepMetadata:
         return {
             "current_time": self.oge.get_current_time()

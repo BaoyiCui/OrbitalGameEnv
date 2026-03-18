@@ -441,6 +441,16 @@ namespace oge
         return reward_time_weight;
     }
 
+    bool OrbitalGameEnvironment::isCaptured() const
+    {
+        for (int e = 0; e < num_evaders; ++e)
+        {
+            if (!agents_states[e].is_alive)
+                return true;
+        }
+        return false;
+    }
+
     void OrbitalGameEnvironment::act(const std::vector<Eigen::Vector3d>& agents_actions)
     {
         if (agents_actions.size() != static_cast<size_t>(num_agents))
