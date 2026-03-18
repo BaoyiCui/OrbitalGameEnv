@@ -37,7 +37,6 @@ namespace oge
         reward_timeout_weight(settings_.getFloat("reward_timeout_weight")),
         reward_fuelout_weight(settings_.getFloat("reward_fuelout_weight")),
         reward_phase_dist_weight(settings_.getFloat("reward_phase_dist_weight")),
-        phase_dist_transition_dist(settings_.getFloat("phase_dist_transition_dist")),
         // distance reward sub-parameters
         reward_far_sma_penalty_scale(settings_.getFloat("reward_far_sma_penalty_scale")),
         reward_far_drift_scale(settings_.getFloat("reward_far_drift_scale")),
@@ -409,8 +408,7 @@ namespace oge
 
     double OrbitalGameEnvironment::getTimeReward() const
     {
-        if (current_time)
-            return reward_time_weight;
+        return reward_time_weight;
     }
 
     void OrbitalGameEnvironment::act(const std::vector<Eigen::Vector3d>& agents_actions)

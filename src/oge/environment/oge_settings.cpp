@@ -47,7 +47,7 @@ namespace oge
         floatSettings["reward_timeout_weight"] = -2.0; // panalty
         floatSettings["reward_fuelout_weight"] = -1.0; //panalty
         floatSettings["reward_phase_dist_weight"] = 1.0;
-        floatSettings["phase_dist_transition_dist"] = 60.0;
+
         floatSettings["reward_far_sma_penalty_scale"] = 10.0;
         floatSettings["reward_far_drift_scale"] = 5.0;
         floatSettings["reward_far_drift_max"] = 2.0;
@@ -89,7 +89,7 @@ namespace oge
         setInternal("reward_timeout_weight", toString(floatSettings["reward_timeout_weight"]), -1, true);
         setInternal("reward_fuelout_weight", toString(floatSettings["reward_fuelout_weight"]), -1, true);
         setInternal("reward_phase_dist_weight", toString(floatSettings["reward_phase_dist_weight"]), -1, true);
-        setInternal("phase_dist_transition_dist", toString(floatSettings["phase_dist_transition_dist"]), -1, true);
+
         setInternal("reward_far_sma_penalty_scale", toString(floatSettings["reward_far_sma_penalty_scale"]), -1, true);
         setInternal("reward_far_drift_scale", toString(floatSettings["reward_far_drift_scale"]), -1, true);
         setInternal("reward_far_drift_max", toString(floatSettings["reward_far_drift_max"]), -1, true);
@@ -180,8 +180,7 @@ namespace oge
             throw std::invalid_argument("OGESettings: reward_fuelout_weight (penalty) must be <= 0");
         if (getFloat("reward_phase_dist_weight") < 0.0)
             throw std::invalid_argument("OGESettings: reward_phase_dist_weight must be >= 0");
-        if (getFloat("phase_dist_transition_dist") <= 0.0)
-            throw std::invalid_argument("OGESettings: phase_dist_transition_dist must be > 0");
+
     }
 
     void OGESettings::copyTo(OGESettings& dst) const

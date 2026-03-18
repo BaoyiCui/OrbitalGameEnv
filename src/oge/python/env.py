@@ -54,7 +54,7 @@ class OGEEnvCfg:
     reward_timeout_weight: float = -2.0
     reward_fuelout_weight: float = -1.0
     reward_phase_dist_weight: float = 1.0
-    phase_dist_transition_dist: float = 60.0
+
     # distance reward sub-parameters
     reward_far_sma_penalty_scale: float = 10.0  # far field: coefficient for sma_diff_ratio penalty when drifting in wrong direction
     reward_far_drift_scale: float = 5.0  # far field: scale sma_diff_ratio to [0, reward_far_drift_max] drift reward

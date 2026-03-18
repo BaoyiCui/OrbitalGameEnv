@@ -82,7 +82,6 @@ namespace oge
         const double reward_timeout_weight;
         const double reward_fuelout_weight;
         const double reward_phase_dist_weight;
-        const double phase_dist_transition_dist;
         // distance reward sub-parameters
         const double reward_far_sma_penalty_scale;
         const double reward_far_drift_scale;
