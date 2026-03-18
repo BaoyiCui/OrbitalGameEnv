@@ -58,6 +58,7 @@ namespace oge
         void checkAlive();
 
         double getFormationReward() const;
+        double getDistanceRewardNew(int p) const;
         double getDistanceReward(int p) const;
         double getCaptureReward(int p) const;
         double getFuelReward(const Eigen::Vector3d& action) const;

@@ -130,8 +130,10 @@ namespace oge
         for (int e = 0; e < num_evaders; ++e)
         {
             observations[e].resize(getObsSize(e));
-            observations[e].segment<3>(0) = signed_log(agents_states[e].r_j2000);
-            observations[e].segment<3>(3) = signed_log(agents_states[e].v_j2000);
+            // observations[e].segment<3>(0) = signed_log(agents_states[e].r_j2000);
+            // observations[e].segment<3>(3) = signed_log(agents_states[e].v_j2000);
+            observations[e].segment<3>(0) = (agents_states[e].r_j2000);
+            observations[e].segment<3>(3) = (agents_states[e].v_j2000);
             for (int p = num_evaders; p < num_agents; ++p)
             {
                 Eigen::Vector3d r_p_lvlh;
@@ -141,15 +143,18 @@ namespace oge
                     agents_states[p].r_j2000, agents_states[p].v_j2000,
                     r_p_lvlh, v_p_lvlh
                 );
-                observations[e].segment<3>(6 + 3 * (p - num_evaders)) = signed_log(r_p_lvlh);
+                // observations[e].segment<3>(6 + 3 * (p - num_evaders)) = signed_log(r_p_lvlh);
+                observations[e].segment<3>(6 + 3 * (p - num_evaders)) = (r_p_lvlh);
             }
         }
 
         for (int p = num_evaders; p < num_agents; ++p)
         {
             observations[p].resize(getObsSize(p));
-            observations[p].segment<3>(0) = signed_log(agents_states[p].r_j2000);
-            observations[p].segment<3>(3) = signed_log(agents_states[p].v_j2000);
+            // observations[p].segment<3>(0) = signed_log(agents_states[p].r_j2000);
+            // observations[p].segment<3>(3) = signed_log(agents_states[p].v_j2000);
+            observations[p].segment<3>(0) = (agents_states[p].r_j2000);
+            observations[p].segment<3>(3) = (agents_states[p].v_j2000);
 
             // other pursuers' positions in this pursuer's LVLH frame
             int offset = 6;
@@ -164,7 +169,8 @@ namespace oge
                     agents_states[other_p].r_j2000, agents_states[other_p].v_j2000,
                     r_other_p_lvlh, v_other_p_lvlh
                 );
-                observations[p].segment<3>(offset) = signed_log(r_other_p_lvlh);
+                // observations[p].segment<3>(offset) = signed_log(r_other_p_lvlh);
+                observations[p].segment<3>(offset) = (r_other_p_lvlh);
                 offset += 3;
             }
 
@@ -175,7 +181,8 @@ namespace oge
                 agents_states[0].r_j2000, agents_states[0].v_j2000,
                 r_e_lvlh, v_e_lvlh
             );
-            observations[p].segment<3>(getObsSize(p) - 3) = signed_log(r_e_lvlh);
+            // observations[p].segment<3>(getObsSize(p) - 3) = signed_log(r_e_lvlh);
+            observations[p].segment<3>(getObsSize(p) - 3) = (r_e_lvlh);
         }
     }
 
@@ -188,7 +195,8 @@ namespace oge
         for (int p = num_evaders; p < num_agents; ++p)
         {
             rewards[p] += getFormationReward();
-            rewards[p] += getDistanceReward(p);
+            // rewards[p] += getDistanceReward(p);     // TODO: 这一项奖励函数先改简单一点，直接用距离当奖励函数好了
+            rewards[p] += getDistanceRewardNew(p);
             rewards[p] += getCaptureReward(p);
             rewards[p] += getFuelReward(agent_actions[p]);
             rewards[p] += getTimeReward();
@@ -356,8 +364,16 @@ namespace oge
         return reward_formation;
     }
 
+    double OrbitalGameEnvironment::getDistanceRewardNew(int p) const
+    {
+        // TODO: 这个函数唯一可调节参数是 reward_phase_dist_weight
+        const double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
+        return reward_phase_dist_weight * std::exp(-distance / capture_distance);
+    }
+
     double OrbitalGameEnvironment::getDistanceReward(int p) const
     {
+        // TODO: 这个函数是直接从任欣的代码里改的，但是参数太多了调不明白
         double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
 
         Eigen::Matrix<double, 6, 1> coe_p, coe_e;
@@ -399,7 +415,7 @@ namespace oge
         double reward_energy = -std::abs(sma_diff_ratio) * reward_near_energy_scale;
         double reward_near = 1.0 * reward_dist + reward_near_energy_weight * reward_energy;
 
-        double alpha = std::abs(sma_diff_ratio) * reward_alpha_scale;
+        double alpha = std::clamp(std::abs(sma_diff_ratio) * reward_alpha_scale, 0.0, 1.0);
         double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
 
 
