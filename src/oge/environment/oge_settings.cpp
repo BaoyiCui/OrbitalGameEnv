@@ -48,15 +48,15 @@ namespace oge
         floatSettings["reward_fuelout_weight"] = -1.0; //panalty
         floatSettings["reward_phase_dist_weight"] = 1.0;
         floatSettings["phase_dist_transition_dist"] = 60.0;
-        floatSettings["reward_far_sma_penalty_scale"] = 2000.0;
-        floatSettings["reward_far_drift_scale"] = 1000.0;
+        floatSettings["reward_far_sma_penalty_scale"] = 10.0;
+        floatSettings["reward_far_drift_scale"] = 5.0;
         floatSettings["reward_far_drift_max"] = 2.0;
         floatSettings["reward_far_angle_weight"] = 0.5;
-        floatSettings["reward_near_energy_scale"] = 2000.0;
+        floatSettings["reward_near_energy_scale"] = 10.0;
         floatSettings["reward_near_energy_weight"] = 0.05;
         floatSettings["reward_dist_capture_bonus"] = 0.1;
         floatSettings["reward_dist_min"] = -1.0;
-        floatSettings["reward_alpha_scale"] = 2000.0;
+        floatSettings["reward_alpha_scale"] = 1.0;
 
         // register as internal defaults
         setInternal("random_seed", toString(intSettings["random_seed"]), -1, true);

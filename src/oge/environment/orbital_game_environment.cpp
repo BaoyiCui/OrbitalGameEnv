@@ -217,10 +217,10 @@ namespace oge
         for (int p = num_evaders; p < num_agents; ++p)
         {
             Eigen::Matrix<double, 6, 1> coe_p = coe_base;
-            double TA_lead = TA_lead_distrib(_rng) == 0 ? -1.0 : 1.0;
+            double TA_lead = TA_lead_distrib(_rng) == 0 ? -1.0 : 1.0; // 相位超前还是滞后
             double distance_offset = dist_init_offset_distrib(_rng);
             coe_p[0] += sma_perturb_distrib(_rng);
-            coe_p[5] += TA_lead * distance_offset / coe_p[0];
+            coe_p[5] += TA_lead * distance_offset / coe_p[0]; // 弧长除半径近似为对应真近点角
             coe2rv(coe_p, agents_states[p].r_j2000, agents_states[p].v_j2000);
         }
 
@@ -340,8 +340,8 @@ namespace oge
 
         // Far field
         double drift_product = TA_delta * sma_diff_ratio;
-        double reward_far, reward_near;
-        if (drift_product > 0.0)
+        double reward_far;
+        if (drift_product < 0.0)
         {
             reward_far = -1.0 - std::abs(sma_diff_ratio) * reward_far_sma_penalty_scale;
         }
@@ -368,7 +368,7 @@ namespace oge
         }
 
         double reward_energy = -std::abs(sma_diff_ratio) * reward_near_energy_scale;
-        reward_near = 1.0 * reward_dist + reward_near_energy_weight * reward_energy;
+        double reward_near = 1.0 * reward_dist + reward_near_energy_weight * reward_energy;
 
         double alpha = std::abs(sma_diff_ratio) * reward_alpha_scale;
         double total_reward = alpha * reward_far + (1.0 - alpha) * reward_near;
