@@ -238,9 +238,31 @@ namespace oge
         }
     }
 
+    std::unordered_map<std::string, SatState> OrbitalGameEnvironment::getSatStates() const
+    {
+        std::unordered_map<std::string, SatState> result;
+        for (int i = 0; i < num_agents; ++i)
+        {
+            result[agent_ids[i]] = agents_states[i];
+        }
+        return result;
+    }
+
+    void OrbitalGameEnvironment::resetWithStates(const std::unordered_map<std::string, SatState>& states)
+    {
+        current_time = 0.0;
+        for (int i = 0; i < num_agents; ++i)
+        {
+            auto it = states.find(agent_ids[i]);
+            if (it != states.end())
+            {
+                agents_states[i] = it->second;
+            }
+        }
+    }
+
     void OrbitalGameEnvironment::processDynamics(const std::vector<Eigen::Vector3d>& actions)
     {
-        // TODO: 目前的输入动作是 J2000坐标系下的速度增量，后续可以修改成LVLH坐标系下的速度增量
         if (actions.size() != static_cast<size_t>(num_agents))
         {
             throw std::invalid_argument("actions.size() != num_agents");
@@ -262,8 +284,16 @@ namespace oge
                     dv_modified = actions[i];
                 }
             }
+            // 这里传入的动作是 LVLH坐标系下的，需要转换回J2000坐标系再更新 agents_states[i].v_j2000
+            Eigen::Vector3d r_j2000, v_j2000;
+            RV_LVLH2J2000(
+                agents_states[i].r_j2000, agents_states[i].v_j2000,
+                Eigen::Vector3d::Zero(), dv_modified,
+                r_j2000, v_j2000
+            );
+
             // update agent's velocity in J2000
-            agents_states[i].v_j2000 += dv_modified;
+            agents_states[i].v_j2000 = v_j2000;
             // update agent's fuel
             agents_states[i].dv_remain -= dv_modified.norm();
 

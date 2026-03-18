@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <random>
+#include <unordered_map>
 
 
 namespace oge
@@ -37,6 +38,12 @@ namespace oge
         int getObsSize(int agent_idx) const;
 
         double getCurrentTime() const;
+
+        /** Returns a map from agent_id to SatState for all satellites. */
+        std::unordered_map<std::string, SatState> getSatStates() const;
+
+        /** Resets the environment using the provided states map (agent_id -> SatState). */
+        void resetWithStates(const std::unordered_map<std::string, SatState>& states);
 
         static bool almost_equal(double a, double b, double epsilon = 1e-12)
         {

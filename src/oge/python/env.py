@@ -109,7 +109,11 @@ class OGEEnv(gym.Env, utils.EzPickle):
             options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, OGEEnvStepMetadata]:
         super().reset(seed=seed, options=options)
-        self.oge.reset()
+        states = options.get("states") if options else None
+        if states is not None:
+            self.oge.reset_with_states(states)
+        else:
+            self.oge.reset()
         observations = self.oge.get_observations()
         return observations, self._get_info()
 
@@ -147,6 +151,19 @@ class OGEEnv(gym.Env, utils.EzPickle):
                 self.oge.setString(key, value)
             else:
                 raise TypeError(f"Unsupported type of key={key}: {type(value)}")
+
+    def get_sat_states(self) -> dict:
+        """Returns all satellite states as a dict: {agent_id: {field: value}}."""
+        raw = self.oge.get_sat_states()
+        return {
+            name: {
+                "r_j2000": state.r_j2000,
+                "v_j2000": state.v_j2000,
+                "dv_remain": state.dv_remain,
+                "is_alive": state.is_alive,
+            }
+            for name, state in raw.items()
+        }
 
     def _get_info(self) -> OGEEnvStepMetadata:
         return {

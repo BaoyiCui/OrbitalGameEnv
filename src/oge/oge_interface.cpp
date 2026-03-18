@@ -54,6 +54,16 @@ namespace oge
         environment->reset();
     }
 
+    std::unordered_map<std::string, SatState> OGEInterface::getSatStates() const
+    {
+        return environment->getSatStates();
+    }
+
+    void OGEInterface::resetWithStates(const std::unordered_map<std::string, SatState>& states)
+    {
+        environment->resetWithStates(states);
+    }
+
     int OGEInterface::getInt(const std::string& key, bool strict) const
     {
         return settings->getInt(key, strict);

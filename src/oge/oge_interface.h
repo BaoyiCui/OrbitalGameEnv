@@ -9,6 +9,7 @@
 
 #include <Eigen/Dense>
 #include <memory>
+#include <unordered_map>
 
 namespace oge
 {
@@ -28,6 +29,8 @@ namespace oge
         double getCurrentTime() const;
         void act(const std::vector<Eigen::Vector3d>& actions);
         void reset();
+        std::unordered_map<std::string, SatState> getSatStates() const;
+        void resetWithStates(const std::unordered_map<std::string, SatState>& states);
 
         int getInt(const std::string& key, bool strict = false) const;
         float getFloat(const std::string& key, bool strict = false) const;

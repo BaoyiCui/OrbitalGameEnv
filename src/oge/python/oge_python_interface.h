@@ -14,6 +14,7 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/filesystem.h>
+#include <nanobind/stl/unordered_map.h>
 #include <nanobind/eigen/dense.h>
 
 #include "oge/oge_interface.h"
@@ -87,6 +88,8 @@ NB_MODULE(_oge_py, m)
         }, nb::rv_policy::reference_internal)
         .def("act", &oge::OGEPythonInterface::act)
         .def("reset", &oge::OGEPythonInterface::reset)
+        .def("get_sat_states", &oge::OGEInterface::getSatStates)
+        .def("reset_with_states", &oge::OGEInterface::resetWithStates, "states"_a)
         .def("init", &oge::OGEPythonInterface::init)
         .def("setInt", &oge::OGEPythonInterface::setInt)
         .def("setFloat", &oge::OGEPythonInterface::setFloat)

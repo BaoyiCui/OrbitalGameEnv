@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import oge_py
 
 
 def test_oge_version(oge_module):
@@ -73,3 +74,69 @@ def test_sat_state_repr(oge_module):
     text = repr(sat_state)
     assert isinstance(text, str)
     assert text
+
+
+@pytest.fixture
+def oge_ready():
+    """An initialized OGEInterface with default settings (1 evader, 4 pursuers)."""
+    iface = oge_py.OGEInterface()
+    iface.init()
+    iface.reset()
+    return iface
+
+
+def test_get_sat_states_returns_dict(oge_ready):
+    states = oge_ready.get_sat_states()
+    assert isinstance(states, dict)
+
+
+def test_get_sat_states_key_count(oge_ready):
+    states = oge_ready.get_sat_states()
+    num_agents = oge_ready.getInt("num_evaders") + oge_ready.getInt("num_pursuers")
+    assert len(states) == num_agents
+
+
+def test_get_sat_states_values_are_sat_state(oge_ready, oge_module):
+    states = oge_ready.get_sat_states()
+    for state in states.values():
+        assert isinstance(state, oge_module.SatState)
+
+
+def test_get_sat_states_fields(oge_ready):
+    states = oge_ready.get_sat_states()
+    for state in states.values():
+        assert state.r_j2000.shape == (3,)
+        assert state.v_j2000.shape == (3,)
+        assert isinstance(state.dv_remain, float)
+        assert isinstance(state.is_alive, bool)
+
+
+def test_reset_with_states_restores_state(oge_ready):
+    # capture state after first reset
+    original = oge_ready.get_sat_states()
+
+    # advance one step to change state
+    num_agents = oge_ready.getInt("num_evaders") + oge_ready.getInt("num_pursuers")
+    actions = np.zeros((num_agents, 3), dtype=np.float64)
+    oge_ready.act(actions)
+
+    # reset back to captured state
+    oge_ready.reset_with_states(original)
+    restored = oge_ready.get_sat_states()
+
+    for name, state in original.items():
+        assert np.allclose(restored[name].r_j2000, state.r_j2000)
+        assert np.allclose(restored[name].v_j2000, state.v_j2000)
+        assert restored[name].dv_remain == pytest.approx(state.dv_remain)
+        assert restored[name].is_alive == state.is_alive
+
+
+def test_reset_with_states_resets_time(oge_ready):
+    original = oge_ready.get_sat_states()
+    num_agents = oge_ready.getInt("num_evaders") + oge_ready.getInt("num_pursuers")
+    actions = np.zeros((num_agents, 3), dtype=np.float64)
+    oge_ready.act(actions)
+    assert oge_ready.get_current_time() > 0.0
+
+    oge_ready.reset_with_states(original)
+    assert oge_ready.get_current_time() == pytest.approx(0.0)
