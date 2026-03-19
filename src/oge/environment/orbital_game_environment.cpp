@@ -368,7 +368,8 @@ namespace oge
     {
         // TODO: 这个函数唯一可调节参数是 reward_phase_dist_weight
         const double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
-        return reward_phase_dist_weight * std::exp(-distance / capture_distance);
+        // return -reward_phase_dist_weight * std::exp(distance / capture_distance);
+        return -reward_phase_dist_weight * (1 - std::exp(-distance / capture_distance));
     }
 
     double OrbitalGameEnvironment::getDistanceReward(int p) const
