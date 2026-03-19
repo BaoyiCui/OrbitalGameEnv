@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <atomic>
+#include <optional>
 #include <Eigen/Dense>
 
 #ifndef MOODYCAMEL_DELETE_FUNCTION
