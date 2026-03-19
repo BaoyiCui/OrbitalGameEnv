@@ -227,7 +227,7 @@ namespace oge
             double TA_lead = TA_lead_distrib(_rng) == 0 ? -1.0 : 1.0; // 相位超前还是滞后
             double distance_offset = dist_init_offset_distrib(_rng);
             coe_p[0] += sma_perturb_distrib(_rng);
-            coe_p[5] += TA_lead * distance_offset / coe_p[0]; // 弧长除半径近似为对应真近点角
+            coe_p[5] = coe_e[5] + TA_lead * distance_offset / coe_p[0]; // 基于evader的TA加偏移
             coe2rv(coe_p, agents_states[p].r_j2000, agents_states[p].v_j2000);
         }
 
