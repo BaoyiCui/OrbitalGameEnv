@@ -61,7 +61,7 @@ namespace oge
         double getDistanceRewardNew(int p) const;
         double getDistanceReward(int p) const;
         double getCaptureReward(int p) const;
-        double getFuelReward(const Eigen::Vector3d& action) const;
+        double getFuelReward(int p, const Eigen::Vector3d& action) const;
         double getTimeReward() const;
 
     private:

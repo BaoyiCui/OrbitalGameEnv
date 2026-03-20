@@ -198,7 +198,7 @@ namespace oge
             // rewards[p] += getDistanceReward(p);     // TODO: 这一项奖励函数先改简单一点，直接用距离当奖励函数好了
             rewards[p] += getDistanceRewardNew(p);
             rewards[p] += getCaptureReward(p);
-            rewards[p] += getFuelReward(agent_actions[p]);
+            rewards[p] += getFuelReward(p, agent_actions[p]);
             rewards[p] += getTimeReward();
         }
     }
@@ -369,7 +369,8 @@ namespace oge
         // TODO: 这个函数唯一可调节参数是 reward_phase_dist_weight
         const double distance = (agents_states[p].r_j2000 - agents_states[0].r_j2000).norm();
         // return -reward_phase_dist_weight * std::exp(distance / capture_distance);
-        return -reward_phase_dist_weight * (1 - std::exp(-distance / capture_distance));
+        // return -reward_phase_dist_weight * (1 - std::exp(-distance / capture_distance));
+        return -reward_phase_dist_weight * (distance - capture_distance) / capture_distance;
     }
 
     double OrbitalGameEnvironment::getDistanceReward(int p) const
@@ -448,9 +449,19 @@ namespace oge
         return 0.0; // no capture
     }
 
-    double OrbitalGameEnvironment::getFuelReward(const Eigen::Vector3d& action) const
+    double OrbitalGameEnvironment::getFuelReward(const int p, const Eigen::Vector3d& action) const
     {
-        return reward_fuel_weight * action.norm();;
+        double fuel_used = action.norm();
+        // if (fuel_used > agents_states[p].dv_remain)
+        // {
+        //     if (fuel_used > dv_max_per_step_p)
+        //     {
+        //         fuel_used = dv_max_per_step_p;
+        //     }
+        // }
+        fuel_used = std::min(std::min(fuel_used, agents_states[p].dv_remain), dv_max_per_step_p);
+
+        return reward_fuel_weight * fuel_used;
     }
 
     double OrbitalGameEnvironment::getTimeReward() const
