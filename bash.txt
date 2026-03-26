@@ -1,0 +1,49 @@
+###常用指令
+1.验证一下STAFN，得到STAFN的图
+conda activate orbit
+python /home/star/Downloads/gemini-cli-main/HLS_LLS_2D/demos/pe_env/eval4train_pomdp.py \
+--checkpoint "/home/star/Downloads/gemini-cli-main/HLS_LLS_2D/runs/March 17th: HAFN;0.5phase/checkpoints/ckpt_final_391.pth" \
+--save_media \
+--evader_policy_level 2 \
+--device cuda
+
+2.对比实验
+python demos/pe_env/run_comprehensive_eval.py \                                          
+  --hafn_ckpt "/home/star/Downloads/gemini-cli-main/HLS_LLS_2D/runs/March 17th: HAFN;0.5phase/checkpoints/ckpt_final_391.pth" \
+  --lstm_ckpt "/home/star/Downloads/gemini-cli-main/HLS_LLS_2D/runs/March 17th: LSTM0.5/checkpoints/ckpt_final_391.pth" \
+  --mlp_ckpt "/home/star/Downloads/gemini-cli-main/HLS_LLS_2D/runs/March 17th: MLP0.5/checkpoints/ckpt_early_stop_391.pth" \
+  --device cuda
+
+3.训练
+python demos/pe_env/run_training.py \
+    --run_name "March 17th: HAFN;0.1phase" \
+    --obs_interval 5 \
+    --target_m 40000.0 \
+    --ring_width_delta 20000.0 \
+    --initial_p_init_dv 250.0 \
+    --min_p_init_dv 200.0 \
+    --success_rate_threshold 0.75 \
+    --evader_policy_level 2 \
+    --p_dv_step 1.5 \
+    --e_dv_step 0.8 \
+    --sma_perturb_start_update 500 \
+    --sma_perturb_end_update 1500 \
+    --sma_perturb_km_max 10.0 \
+    --reward_phase_dist_weight 0.1   
+
+python demos/pe_env/run_training.py \
+    --run_name "March 17th: LSTM0.5" \
+    --obs_interval 5 \
+    --target_m 40000.0 \
+    --ring_width_delta 20000.0 \
+    --initial_p_init_dv 250.0 \
+    --min_p_init_dv 200.0 \
+    --success_rate_threshold 0.75 \
+    --evader_policy_level 2 \
+    --p_dv_step 1.5 \
+    --e_dv_step 0.8 \
+    --sma_perturb_start_update 500 \
+    --sma_perturb_end_update 1500 \
+    --sma_perturb_km_max 10.0 \
+    --student_model_type lstm \
+    --reward_phase_dist_weight 0.5
